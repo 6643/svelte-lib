@@ -1,0 +1,32 @@
+{
+    "name": "svelte-lib",
+    "module": "./_.ts",
+    "exports": {
+        ".": "./_.ts",
+        "./ui": "./ui/_.ts",
+        "./use": "./use/_.ts",
+        "./route": "./route/_.ts",
+        "./builder": "./builder/_.ts",
+        "./package.json": "./package.json"
+    },
+    "bin": {
+        "svelte-builder": "./builder/cli.ts"
+    },
+    "type": "module",
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@types/node": "latest",
+        "jsdom": "latest",
+        "svelte": "latest",
+        "svelte-check": "latest",
+        "typescript": "latest"
+    },
+    "peerDependencies": {
+        "svelte": "latest",
+        "typescript": "latest"
+    }
+}
