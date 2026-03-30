@@ -15,7 +15,36 @@
 - `route/` 承接原 `svelte-route`
 - `builder/` 承接原 `svelte-builder`
 
-CLI 继续保留：
+## 安装
+
+作为本地依赖使用时，先在消费项目里安装：
+
+```bash
+bun add /._/svelte-lib
+bun install
+```
+
+## 导入
+
+```ts
+import { IconButton } from "svelte-lib/ui";
+import { useTheme } from "svelte-lib/use";
+import { Route } from "svelte-lib/route";
+import { runConfiguredBuild } from "svelte-lib/builder";
+```
+
+## CLI
+
+`svelte-lib` 暴露了 `svelte-builder` 这个 bin，但是否自动出现在 `.bin/` 取决于消费项目的安装方式。
+
+在当前本地仓库开发流里，最稳妥的调用方式是直接执行 builder CLI：
+
+```bash
+bun /._/svelte-lib/builder/cli.ts build
+bun /._/svelte-lib/builder/cli.ts dev
+```
+
+如果你的包管理器已经正确把 bin 链接到项目里，也可以直接使用：
 
 ```bash
 svelte-builder build

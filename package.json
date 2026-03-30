@@ -1,5 +1,6 @@
 {
     "name": "svelte-lib",
+    "version": "1.0.0",
     "module": "./_.ts",
     "exports": {
         ".": "./_.ts",
