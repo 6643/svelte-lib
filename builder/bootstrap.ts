@@ -1,6 +1,6 @@
 import { isAbsolute, join, relative } from "node:path";
 
-const normalizeImportPath = (value: string): string => value.replaceAll("\\", "/");
+const normalizeImportPath = (value: string): string => value.replace(/\\/g, "/");
 
 export const createImportPath = (fromDir: string, toPath: string): string => {
     const importPath = normalizeImportPath(relative(fromDir, toPath));

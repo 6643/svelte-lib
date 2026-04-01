@@ -12,8 +12,8 @@
 
 - `ui/` 放可复用 Svelte 组件与图标
 - `use/` 放 hooks 与轻量工具
-- `route/` 承接原 `svelte-route`
-- `builder/` 承接原 `svelte-builder`
+- `route/` 放路由实现，对外通过 `svelte-lib/route` 暴露
+- `builder/` 放构建能力，对外通过 `svelte-lib/builder` 暴露
 
 ## 安装
 

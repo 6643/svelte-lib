@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { createManagedRouteState } from '../history.ts';
 import {
   __createRouteHistoryStateForTest,
+  __createRouteHistorySnapshotForTest,
   __resetRouteSystemForTest,
   getMatchedRouteId,
   initRouteSystem,
@@ -78,6 +79,28 @@ afterEach(() => {
 });
 
 describe('router runtime', () => {
+  test('small history states keep a comparable snapshot for duplicate matching', () => {
+    const state = { step: 1, nested: { ok: true } };
+
+    const snapshot = __createRouteHistorySnapshotForTest(state);
+
+    expect(snapshot).toEqual(state);
+    expect(snapshot === state).toBe(false);
+  });
+
+  test('oversized history states skip deep snapshots to cap reconciliation cost', () => {
+    const state = {
+      items: Array.from({ length: 512 }, (_, index) => ({
+        index,
+        payload: `item-${index}`
+      }))
+    };
+
+    const snapshot = __createRouteHistorySnapshotForTest(state);
+
+    expect(snapshot).toBeUndefined();
+  });
+
   test('routePush and routeReplace update location accessors', () => {
     expect(routeCurrentPath()).toBe('/a');
 

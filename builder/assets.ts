@@ -46,23 +46,33 @@ const resolvePhysicalChildPath = async (path: string): Promise<Result<string>> =
     return ok(join(physicalParent.value, basename(path)));
 };
 
-export const resolveConfiguredAssetsDir = async (rootDir: string, assetsDir?: string): Promise<Result<string | undefined>> => {
-    if (assetsDir === undefined) {
+export const resolveConfiguredAssetsDir = async (
+    rootDir: string,
+    assetsDir?: string,
+    defaultAssetsDir?: string,
+): Promise<Result<string | undefined>> => {
+    const configuredAssetsDir = assetsDir ?? defaultAssetsDir;
+    if (configuredAssetsDir === undefined) {
         return ok(undefined);
     }
 
-    const resolvedDir = isAbsolute(assetsDir) ? assetsDir : resolve(rootDir, assetsDir);
+    const resolvedDir = isAbsolute(configuredAssetsDir) ? configuredAssetsDir : resolve(rootDir, configuredAssetsDir);
+    const allowMissing = assetsDir === undefined && defaultAssetsDir !== undefined;
 
     const info = await stat(resolvedDir).then(
         (value) => ok(value),
         (error: unknown) => {
             const code = getErrorCode(error);
             if (code === "ENOENT" || code === "ENOTDIR") {
-                return fail(`Missing configured assets directory: ${assetsDir} (resolved to ${resolvedDir})`);
+                return allowMissing
+                    ? ok(undefined)
+                    : fail(
+                          `Missing configured assets directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`,
+                      );
             }
 
             return fail(
-                `Failed to inspect configured assets directory ${assetsDir} (resolved to ${resolvedDir}): ${
+                `Failed to inspect configured assets directory ${configuredAssetsDir} (resolved to ${resolvedDir}): ${
                     error instanceof Error ? error.message : String(error)
                 }`,
             );
@@ -72,8 +82,12 @@ export const resolveConfiguredAssetsDir = async (rootDir: string, assetsDir?: st
         return info;
     }
 
+    if (info.value === undefined) {
+        return ok(undefined);
+    }
+
     if (!info.value.isDirectory()) {
-        return fail(`Configured assetsDir is not a directory: ${assetsDir} (resolved to ${resolvedDir})`);
+        return fail(`Configured assetsDir is not a directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
     }
 
     const physicalDir = await resolvePhysicalPath(resolvedDir);

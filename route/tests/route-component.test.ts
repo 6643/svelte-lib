@@ -4,8 +4,6 @@ import { JSDOM } from 'jsdom';
 import { mount as svelteMount, unmount as svelteUnmount } from '../../node_modules/svelte/src/internal/client/render.js';
 // @ts-expect-error test-only client entry under Bun-only setup
 import { flush_sync as flushSync } from '../../node_modules/svelte/src/internal/client/runtime.js';
-
-import { lazyRoute } from '../lazy.ts';
 import { __resetRouteSystemForTest, routePush } from '../router.svelte.ts';
 import type { SyncRouteComponent } from '../types.ts';
 import { loadCompiledComponent } from './helpers/compile-svelte.ts';
@@ -442,7 +440,7 @@ describe('Route component', () => {
     }).toThrow(/decoder/i);
   });
 
-  test('bare zero-argument route loaders must use lazyRoute and are not probed eagerly', async () => {
+  test('bare zero-argument route loaders are treated as lazy loaders and are not probed eagerly', async () => {
     cleanupDom();
     cleanupDom = installDom('/ambiguous');
     __resetRouteSystemForTest();
@@ -457,16 +455,17 @@ describe('Route component', () => {
       return Promise.resolve({ default: (() => null) as never });
     };
 
-    expect(() => {
-      mounted = mount(Route, {
-        target,
-        props: {
-          path: '/ambiguous',
-          component: Ambiguous
-        }
-      });
-    }).toThrow(/lazyroute/i);
+    mounted = mount(Route, {
+      target,
+      props: {
+        path: '/ambiguous',
+        component: Ambiguous
+      }
+    });
+
     expect(loaderCalls).toBe(0);
+    flushSync();
+    expect(loaderCalls).toBe(1);
   });
 
   test('renders lazy routes without default loading dom', async () => {
@@ -489,7 +488,7 @@ describe('Route component', () => {
       target,
       props: {
         path: '/lazy',
-        component: lazyRoute(Lazy),
+        component: Lazy,
         $id: Number
       }
     });
@@ -505,6 +504,7 @@ describe('Route component', () => {
 
     expect(target.querySelector('[data-testid="lazy-target"]')?.textContent).toBe('{"id":9}');
   });
+
 
   test('query only navigation keeps lazy routes mounted', async () => {
     cleanupDom();
@@ -523,7 +523,7 @@ describe('Route component', () => {
       target,
       props: {
         path: '/lazy',
-        component: lazyRoute(Lazy),
+        component: Lazy,
         $id: Number
       }
     });
@@ -569,7 +569,7 @@ describe('Route component', () => {
       target,
       props: {
         path: '/lazy',
-        component: lazyRoute(Lazy),
+        component: Lazy,
         $id: Number
       }
     });
@@ -612,7 +612,7 @@ describe('Route component', () => {
       target,
       props: {
         path: '/lazy',
-        component: lazyRoute(Lazy)
+        component: Lazy
       }
     });
 
@@ -647,7 +647,7 @@ describe('Route component', () => {
       target,
       props: {
         path: '/lazy',
-        component: lazyRoute(() => null as never)
+        component: () => null as never
       }
     });
 
@@ -685,7 +685,7 @@ describe('Route component', () => {
       target,
       props: {
         path: '/lazy',
-        component: lazyRoute(Lazy)
+        component: Lazy
       }
     });
 
@@ -745,7 +745,7 @@ describe('Route component', () => {
       target,
       props: {
         path: '/lazy',
-        component: lazyRoute(Lazy)
+        component: Lazy
       }
     });
 
@@ -794,7 +794,7 @@ describe('Route component', () => {
       target,
       props: {
         path: '/lazy',
-        component: lazyRoute(Lazy)
+        component: Lazy
       }
     });
 

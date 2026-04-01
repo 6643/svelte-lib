@@ -3,11 +3,9 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 import { buildPushState, buildReplaceState, normalizeHistoryState } from '../history.ts';
-import { lazyRoute } from '../lazy.ts';
 import { getRawAnchorNavigationTarget, normalizeNavigationTarget } from '../navigation.ts';
 import { decodeQueryValue, decodeRouteProps } from '../query.ts';
 import { resolveLazyRouteComponent } from '../route-validation.ts';
-import type { SyncRouteComponent } from '../types.ts';
 
 const PRIMARY_OWNER = 'owner-primary';
 const FOREIGN_OWNER = 'owner-foreign';
@@ -140,12 +138,6 @@ describe('query decoders', () => {
 describe('route validation', () => {
   test('lazy route modules must expose a default component export', () => {
     expect(() => resolveLazyRouteComponent({})).toThrow(/lazy route component/i);
-  });
-
-  test('lazyRoute rejects non-zero-argument loaders', () => {
-    expect(() =>
-      lazyRoute(((value: string) => Promise.resolve({ default: (() => null) as unknown as SyncRouteComponent })) as never)
-    ).toThrow(/zero-argument/i);
   });
 });
 
@@ -317,7 +309,7 @@ describe('public api', () => {
     const entry = await import('../_.ts');
 
     expect(typeof entry.Route).toBe('string');
-    expect(typeof entry.lazyRoute).toBe('function');
+    expect('lazyRoute' in entry).toBe(false);
     expect(typeof entry.routePush).toBe('function');
     expect(typeof entry.routeReplace).toBe('function');
     expect(typeof entry.routeCurrentPath).toBe('function');
@@ -325,39 +317,27 @@ describe('public api', () => {
     expect(typeof entry.routeForwardPath).toBe('function');
     expect('__resetRouteSystemForTest' in entry).toBe(false);
   });
-
-  test('lazyRoute returns an explicit lazy route definition', async () => {
-    const entry = await import('../_.ts');
-    const loader = () => Promise.resolve({ default: (() => null) as never });
-    const definition = entry.lazyRoute(loader);
-
-    expect(definition).toEqual({
-      kind: 'lazy-route',
-      load: loader
-    });
-  });
-
-  test('lazyRoute rejects non-function input', async () => {
-    const entry = await import('../_.ts');
-
-    expect(() => entry.lazyRoute(null as never)).toThrow(/loader/i);
-  });
 });
 
 describe('package metadata', () => {
   test('pins development dependencies and keeps peer dependencies as explicit compatibility ranges', () => {
     const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
       devDependencies: Record<string, string>;
-      exports: Record<string, string>;
       peerDependencies: Record<string, string>;
     };
 
-    expect(typeof packageJson.devDependencies['@types/node']).toBe('string');
-    expect(typeof packageJson.devDependencies.jsdom).toBe('string');
-    expect(typeof packageJson.devDependencies.svelte).toBe('string');
-    expect(packageJson.exports['./route']).toBe('./route/_.ts');
+    expect(packageJson.devDependencies).toEqual({
+      '@types/bun': '1.3.11',
+      '@types/node': '25.5.0',
+      jsdom: '29.0.1',
+      svelte: '5.0.0-next.272',
+      'svelte-check': '4.4.5',
+      typescript: '6.0.2'
+    });
 
-    expect(typeof packageJson.peerDependencies.svelte).toBe('string');
-    expect(typeof packageJson.peerDependencies.typescript).toBe('string');
+    expect(packageJson.peerDependencies).toEqual({
+      svelte: '^5.0.0-next.0 || ^5.0.0',
+      typescript: '>=5.0.0 <6'
+    });
   });
 });

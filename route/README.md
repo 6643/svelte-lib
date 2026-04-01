@@ -1,6 +1,6 @@
-# svelte-route
+# svelte-lib/route
 
-A lightweight Bun-only SPA router for Svelte projects.
+A lightweight Bun-only SPA router exposed through the `svelte-lib/route` subpath export.
 
 ## Features
 
@@ -15,17 +15,17 @@ A lightweight Bun-only SPA router for Svelte projects.
 ## Install
 
 ```bash
-bun add ../svelte-route
+bun add /._/svelte-lib
 ```
 
-This repository is currently configured as a private package.
-Use a local path or workspace dependency, then import from `svelte-route` as usual.
+This repository is currently configured as a private local package.
+Use a local path or workspace dependency, then import from `svelte-lib/route`.
 
 ## Quick Start
 
 ```svelte
 <script lang="ts">
-  import { Route } from 'svelte-route';
+  import { Route } from 'svelte-lib/route';
 
   import Home from './routes/Home.svelte';
   import User from './routes/User.svelte';
@@ -50,7 +50,7 @@ For `/user?id=7`, the `User` component receives:
 `Route` accepts:
 
 - `path`: exact pathname to match, or `*` for a fallback route
-- `component`: a Svelte component or an explicit `lazyRoute(...)` definition
+- `component`: a Svelte component or a zero-argument lazy loader `() => import(...)`
 - `$name`: an optional query decoder that maps `?name=value` to a prop named `name`
 
 Matching behavior:
@@ -73,7 +73,7 @@ Custom decoders are also supported:
 
 ```svelte
 <script lang="ts">
-  import { Route } from 'svelte-route';
+  import { Route } from 'svelte-lib/route';
 
   import Search from './routes/Search.svelte';
 
@@ -123,7 +123,7 @@ import {
   routeForwardPath,
   routePush,
   routeReplace
-} from 'svelte-route';
+} from 'svelte-lib/route';
 
 routePush('/user?id=1');
 routePush('?page=2');
@@ -162,16 +162,14 @@ Invalid navigation inputs throw:
 
 ## Lazy Routes
 
-`component` also accepts an explicit lazy route definition created with `lazyRoute(...)`.
+`component` also accepts a zero-argument loader function for lazy loading.
 
 ```svelte
 <script lang="ts">
-  import { Route, lazyRoute } from 'svelte-route';
-
-  const loadSettings = () => import('./routes/Settings.svelte');
+  import { Route } from 'svelte-lib/route';
 </script>
 
-<Route path="/settings" component={lazyRoute(loadSettings)} />
+<Route path="/settings" component={() => import('./routes/Settings.svelte')} />
 ```
 
 Lazy route behavior:
@@ -181,9 +179,8 @@ Lazy route behavior:
 - Loader errors are thrown upward
 - A pending lazy load is reused if the route is deactivated and reactivated before resolution
 - After a lazy load failure, leaving and re-entering the route allows a fresh retry
-- `lazyRoute(...)` must receive a zero-argument loader function that returns a promise
+- The loader must be a zero-argument function that returns a promise
 - The resolved module must expose a function-valued `default` component export
-- Bare zero-argument loaders are not supported; wrap them in `lazyRoute(...)`
 
 ## Limits
 

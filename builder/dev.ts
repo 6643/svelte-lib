@@ -4,7 +4,16 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { compile } from "svelte/compiler";
-import { createHtmlShell, type BuildSvelteOptions, type Result, loadSvelteConfig, resolveAppSourceRoot, validateLocalSourceImportGraph, validateResolvedAppComponentPath } from "./build";
+import {
+    createHtmlShell,
+    type BuildSvelteOptions,
+    type Result,
+    loadSvelteConfig,
+    resolveAppSourceRoot,
+    validateSvelteBrowserImportAliases,
+    validateLocalSourceImportGraph,
+    validateResolvedAppComponentPath,
+} from "./build";
 import { createBootstrapSource, createImportPath, resolveConfiguredPath } from "./bootstrap";
 import { resolveConfiguredAssetsDir, resolvePhysicalAssetPath } from "./assets";
 import { formatAssetReport } from "./report";
@@ -39,7 +48,7 @@ const EXCLUDED_DIRS = ["node_modules", ".git", "dist"];
 const DEV_WATCH_DEBOUNCE_MS = 100;
 const DEV_SPECIAL_IMPORTS = {
     "esm-env": "/_virtual/esm-env.js",
-    "svelte": "/_node_modules/svelte/src/index-client.js",
+    svelte: "/_node_modules/svelte/src/index-client.js",
     "svelte/internal": "/_node_modules/svelte/src/internal/index.js",
     "svelte/internal/client": "/_node_modules/svelte/src/internal/client/index.js",
     "svelte/internal/disclose-version": "/_node_modules/svelte/src/internal/disclose-version.js",
@@ -51,7 +60,7 @@ const fail = (error: string): Result<never> => ({ ok: false, error });
 const DEV_PORT_RETRY_LIMIT = 8;
 const DEV_PORT_RANGE_MAX = 65535;
 const DEV_PORT_RANGE_MIN = 49152;
-const DEV_CONFIG_FILE_NAME = "svelte-builder.config.json";
+const DEV_CONFIG_FILE_NAME = "builder.ts";
 const getErrorMessage = (error: unknown): string => {
     if (error instanceof Error) {
         return error.message;
@@ -65,19 +74,19 @@ const getErrorCode = (error: unknown): string | undefined =>
 
 const escapeHtml = (value: string): string =>
     value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 
 const createNotFoundResponse = (): Response => new Response("Not Found", { status: 404 });
 const createMethodNotAllowedResponse = (): Response =>
     new Response("Method Not Allowed", {
         status: 405,
-        headers: { "Allow": "GET, HEAD" },
+        headers: { Allow: "GET, HEAD" },
     });
-const normalizeModulePath = (value: string): string => value.replaceAll("\\", "/");
+const normalizeModulePath = (value: string): string => value.replace(/\\/g, "/");
 const DEV_LIVE_RELOAD_PATH = "/___live_reload";
 const DEV_INTERNAL_PATH_PREFIXES = ["/_node_modules/", "/_virtual/", "/assets/"] as const;
 
@@ -85,7 +94,7 @@ const createDevLiveReloadScript = (): string =>
     [
         "<script>",
         `    const source = new EventSource(${JSON.stringify(DEV_LIVE_RELOAD_PATH)});`,
-        '    source.onmessage = (event) => {',
+        "    source.onmessage = (event) => {",
         '        if (event.data === "reload") {',
         "            source.close();",
         "            location.reload();",
@@ -94,12 +103,54 @@ const createDevLiveReloadScript = (): string =>
         "</script>",
     ].join("\n");
 
+type DevWatchTarget =
+    | { kind: "config" }
+    | { kind: "directory"; path: string }
+    | { kind: "ignore" }
+    | { kind: "module"; modulePath: string };
+
+export const classifyDevWatchTarget = ({
+    eventPath,
+    fileStatus,
+    filename,
+    watchDir,
+}: {
+    eventPath: string;
+    fileStatus: "directory" | "file" | "missing" | "other";
+    filename: string;
+    watchDir: string;
+}): DevWatchTarget => {
+    const relativePath = relative(watchDir, eventPath);
+    if (relativePath.startsWith("..") || relativePath.length === 0) {
+        return { kind: "ignore" };
+    }
+
+    if (relativePath === DEV_CONFIG_FILE_NAME) {
+        return { kind: "config" };
+    }
+
+    if (fileStatus === "directory") {
+        if (!isExcludedWatchDirectory(filename) && !filename.startsWith(".")) {
+            return { kind: "directory", path: eventPath };
+        }
+
+        return { kind: "ignore" };
+    }
+
+    if (fileStatus === "file" || fileStatus === "missing") {
+        return isCompilableDevModule(relativePath) ? { kind: "module", modulePath: relativePath } : { kind: "ignore" };
+    }
+
+    return { kind: "ignore" };
+};
+
 const createDevHtmlShell = (importMapScript: string, mountId: string, appTitle: string): string =>
     [
         "<!DOCTYPE html>",
         '<html lang="en">',
         "<head>",
         '    <meta charset="UTF-8">',
+        '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
         `    <title>${escapeHtml(appTitle)}</title>`,
         `    ${importMapScript}`,
         "</head>",
@@ -157,12 +208,12 @@ const logRecompiledAsset = (modulePath: string, contents: string): void => {
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const isBareImportSpecifier = (specifier: string): boolean =>
-    !specifier.startsWith(".")
-    && !specifier.startsWith("/")
-    && !specifier.startsWith("data:")
-    && !specifier.startsWith("blob:")
-    && !specifier.startsWith("http:")
-    && !specifier.startsWith("https:");
+    !specifier.startsWith(".") &&
+    !specifier.startsWith("/") &&
+    !specifier.startsWith("data:") &&
+    !specifier.startsWith("blob:") &&
+    !specifier.startsWith("http:") &&
+    !specifier.startsWith("https:");
 
 const getPackageNameFromSpecifier = (specifier: string): string => {
     const segments = specifier.split("/");
@@ -232,7 +283,11 @@ const rewriteBareImportsForDev = async (source: string, importerPath: string): P
             jsImportScanner
                 .scanImports(source)
                 .map((record) => record.path)
-                .filter((specifier) => DEV_SPECIAL_IMPORTS[specifier as keyof typeof DEV_SPECIAL_IMPORTS] !== undefined || isBareImportSpecifier(specifier)),
+                .filter(
+                    (specifier) =>
+                        DEV_SPECIAL_IMPORTS[specifier as keyof typeof DEV_SPECIAL_IMPORTS] !== undefined ||
+                        isBareImportSpecifier(specifier),
+                ),
         ),
     );
 
@@ -371,7 +426,11 @@ const resolveDevSourceRoot = (rootDir: string, appComponentPath: string): string
     return topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir);
 };
 
-export const resolveDevWatchRoots = (rootDir: string, assetsDir: string | undefined, appComponentPath: string): DevWatchRoot[] => {
+export const resolveDevWatchRoots = (
+    rootDir: string,
+    assetsDir: string | undefined,
+    appComponentPath: string,
+): DevWatchRoot[] => {
     const sourceRoot = resolveDevSourceRoot(rootDir, appComponentPath);
     const roots = new Map<string, DevWatchRoot>();
     const addRoot = (path: string, recursive: boolean) => {
@@ -390,7 +449,9 @@ export const resolveDevWatchRoots = (rootDir: string, assetsDir: string | undefi
         addRoot(assetsDir, true);
     }
 
-    return Array.from(roots.values()).sort((left, right) => Number(left.recursive) - Number(right.recursive) || left.path.localeCompare(right.path));
+    return Array.from(roots.values()).sort(
+        (left, right) => Number(left.recursive) - Number(right.recursive) || left.path.localeCompare(right.path),
+    );
 };
 
 const loadUncachedDevModule = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
@@ -528,49 +589,59 @@ const createDevReloadHub = (
         try {
             watchedDirs.add(dir);
             const watcher = watch(dir, (_eventType, filename) => {
-                    if (typeof filename !== "string" || filename.length === 0) {
-                        notify("reload");
+                if (typeof filename !== "string" || filename.length === 0) {
+                    notify("reload");
+                    return;
+                }
+
+                try {
+                    const modulePath = join(dir, filename);
+                    const fileStatus = (() => {
+                        try {
+                            const entry = lstatSync(modulePath);
+                            if (entry.isDirectory()) return "directory" as const;
+                            if (entry.isFile()) return "file" as const;
+                            return "other" as const;
+                        } catch (error) {
+                            return isIgnorableDevWatcherError(error) ? ("missing" as const) : (() => { throw error; })();
+                        }
+                    })();
+
+                    const target = classifyDevWatchTarget({
+                        eventPath: modulePath,
+                        fileStatus,
+                        filename,
+                        watchDir,
+                    });
+
+                    if (target.kind === "config") {
+                        void Promise.resolve(onConfigFileChange?.()).catch((error) => {
+                            console.error(getErrorMessage(error));
+                        });
                         return;
                     }
 
-                    try {
-                        const modulePath = join(dir, filename);
-                        const entry = lstatSync(modulePath);
-                        if (entry.isDirectory()) {
-                            if (!isExcludedWatchDirectory(filename) && !filename.startsWith(".")) {
-                                if (recursive || recursiveWatchRoots.has(modulePath)) {
-                                    watchDirectory(modulePath, true);
-                                }
-                            }
-                            return;
+                    if (target.kind === "directory") {
+                        if (recursive || recursiveWatchRoots.has(target.path)) {
+                            watchDirectory(target.path, true);
                         }
-
-                        if (!entry.isFile()) {
-                            return;
-                        }
-
-                        const relativePath = relative(watchDir, modulePath);
-                        if (relativePath === DEV_CONFIG_FILE_NAME) {
-                            void Promise.resolve(onConfigFileChange?.()).catch((error) => {
-                                console.error(getErrorMessage(error));
-                            });
-                            return;
-                        }
-
-                        if (relativePath.startsWith("..") || relativePath.length === 0 || !isCompilableDevModule(relativePath)) {
-                            return;
-                        }
-
-                        if (!shouldProcessDevWatchEvent(recentEvents, relativePath)) {
-                            return;
-                        }
-
-                        notify("reload");
-                        void compileChangedDevAsset(watchDir, relativePath, cache, allowedRoots);
-                    } catch (error) {
-                        reportDevWatcherIssue(`watch event for ${join(dir, filename)}`, error);
+                        return;
                     }
-                });
+
+                    if (target.kind !== "module") {
+                        return;
+                    }
+
+                    if (!shouldProcessDevWatchEvent(recentEvents, target.modulePath)) {
+                        return;
+                    }
+
+                    notify("reload");
+                    void compileChangedDevAsset(watchDir, target.modulePath, cache, allowedRoots);
+                } catch (error) {
+                    reportDevWatcherIssue(`watch event for ${join(dir, filename)}`, error);
+                }
+            });
             attachDevWatcherErrorHandler(watcher, `watch runtime for ${dir}`);
             watchers.push(watcher);
             if (recursive) {
@@ -653,13 +724,41 @@ const createSSEResponse = (hub: DevReloadHub, signal: AbortSignal) => {
     return new Response(stream, {
         headers: {
             "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
+            Connection: "keep-alive",
             "Content-Type": "text/event-stream",
         },
     });
 };
 
 const createInternalServerErrorResponse = (): Response => new Response("Internal Server Error", { status: 500 });
+
+export const shouldProxyDevRequestPath = (rawPathname: string): boolean =>
+    rawPathname === "/items" ||
+    rawPathname.startsWith("/items/") ||
+    rawPathname === "/cron" ||
+    rawPathname.startsWith("/cron/");
+
+export const shouldProxyDevRequestMethod = (method: string): boolean => method === "GET" || method === "HEAD";
+
+const DEV_PROXY_ALLOWED_HEADERS = new Set(["accept", "accept-language", "cache-control", "if-modified-since", "if-none-match"]);
+
+export const createDevProxyHeaders = (headers: Headers): Headers => {
+    const nextHeaders = new Headers();
+
+    for (const [name, value] of headers.entries()) {
+        if (DEV_PROXY_ALLOWED_HEADERS.has(name.toLowerCase())) {
+            nextHeaders.set(name, value);
+        }
+    }
+
+    return nextHeaders;
+};
+
+export const createDevProxyFetchInit = (request: Request): RequestInit => ({
+    headers: createDevProxyHeaders(request.headers),
+    method: request.method,
+    signal: request.signal,
+});
 
 const createDevModuleErrorResponse = (error: string): Response => {
     if (error.startsWith("Missing file:")) {
@@ -700,7 +799,7 @@ const resolveDevRequestPath = async (
     }
 
     const segments: string[] = [];
-    for (const segment of decodedPath.replaceAll("\\", "/").split("/")) {
+    for (const segment of decodedPath.replace(/\\/g, "/").split("/")) {
         if (segment.length === 0 || segment === ".") {
             continue;
         }
@@ -775,7 +874,7 @@ const resolveDevNodeModuleRequestPath = async (
     }
 
     const segments: string[] = [];
-    for (const segment of decodedPath.replaceAll("\\", "/").split("/")) {
+    for (const segment of decodedPath.replace(/\\/g, "/").split("/")) {
         if (segment.length === 0 || segment === ".") {
             continue;
         }
@@ -846,10 +945,7 @@ export const findNodeModulesRoot = async (startDir: string): Promise<Result<stri
     }
 };
 
-const deriveDevRuntimeState = async (
-    config: BuildSvelteOptions,
-    cwd = process.cwd(),
-): Promise<Result<DevRuntimeState>> => {
+const deriveDevRuntimeState = async (config: BuildSvelteOptions, cwd = process.cwd()): Promise<Result<DevRuntimeState>> => {
     const rootDir = config.rootDir ?? cwd;
     const mountId = config.mountId ?? "app";
     const appTitle = config.appTitle ?? "Svelte Builder";
@@ -874,7 +970,12 @@ const deriveDevRuntimeState = async (
         return validatedImportGraph;
     }
 
-    const assetsDir = await resolveConfiguredAssetsDir(rootDir, config.assetsDir);
+    const validatedRuntimeAliases = await validateSvelteBrowserImportAliases(rootDir);
+    if (!validatedRuntimeAliases.ok) {
+        return validatedRuntimeAliases;
+    }
+
+    const assetsDir = await resolveConfiguredAssetsDir(rootDir, config.assetsDir, "assets");
     if (!assetsDir.ok) {
         return assetsDir;
     }
@@ -1090,6 +1191,20 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
             const url = new URL(req.url);
             const rawPathname = getRawRequestPathname(req.url);
 
+            const proxyTarget = process.env.PAGES_PROXY_URL;
+            if (proxyTarget && shouldProxyDevRequestPath(rawPathname)) {
+                if (!shouldProxyDevRequestMethod(req.method)) {
+                    return createMethodNotAllowedResponse();
+                }
+
+                try {
+                    return await fetch(`${proxyTarget}${rawPathname}${url.search}`, createDevProxyFetchInit(req));
+                } catch (error) {
+                    console.error(`[svelte-builder] Proxy failed for ${rawPathname}:`, getErrorMessage(error));
+                    return new Response("Proxy error", { status: 502 });
+                }
+            }
+
             if (req.method !== "GET" && req.method !== "HEAD") {
                 return createMethodNotAllowedResponse();
             }
@@ -1105,7 +1220,7 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
                 return new Response(
                     createBootstrapSource(createImportPath(rootDir, currentState.appComponentPath), currentState.mountId),
                     {
-                    headers: { "Content-Type": "application/javascript" },
+                        headers: { "Content-Type": "application/javascript" },
                     },
                 );
             }
@@ -1234,12 +1349,9 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
                     return new Response("Not Found", { status: 404 });
                 }
 
-                const compiled = await loadDevModule(
-                    rootDir,
-                    resolvedSourcePath.value.modulePath,
-                    reloadHub.cache,
-                    [realpathSync(currentState.sourceRoot)],
-                );
+                const compiled = await loadDevModule(rootDir, resolvedSourcePath.value.modulePath, reloadHub.cache, [
+                    realpathSync(currentState.sourceRoot),
+                ]);
                 if (!compiled.ok) {
                     return createDevModuleErrorResponse(compiled.error);
                 }

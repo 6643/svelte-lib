@@ -6,11 +6,18 @@
     getMatchedRouteId,
     initRouteSystem,
     registerRoute,
-    subscribeRuntime
-  } from './router.svelte.ts';
-  import { decodeRouteProps } from './query.ts';
-  import { isLazyRouteDefinition, isPromiseLike, resolveLazyRouteComponent } from './route-validation.ts';
-  import type { LazyRouteLoader, RouteComponent, RouteDecoder, RouteDecoderMap, RouteEntry, SyncRouteComponent } from './types.ts';
+    subscribeRuntime,
+  } from "./router.svelte.ts";
+  import { decodeRouteProps } from "./query.ts";
+  import { isPromiseLike, resolveLazyRouteComponent } from "./route-validation.ts";
+  import type {
+    LazyRouteLoader,
+    RouteComponent,
+    RouteDecoder,
+    RouteDecoderMap,
+    RouteEntry,
+    SyncRouteComponent,
+  } from "./types.ts";
 
   type RouteProps = {
     path: string;
@@ -19,47 +26,56 @@
 
   let props = $props();
 
-  const isDecoder = ((value) => value === String || value === Number || value === Boolean || typeof value === 'function') as (
-    value: unknown,
-  ) => value is RouteDecoder;
+  const isDecoder = ((value) =>
+    value === String ||
+    value === Number ||
+    value === Boolean ||
+    typeof value === "function") as (value: unknown) => value is RouteDecoder;
 
-  const validateRouteProps = (): { path: string; component: RouteComponent; decoders: RouteDecoderMap } => {
+  const validateRouteProps = (): {
+    path: string;
+    component: RouteComponent;
+    decoders: RouteDecoderMap;
+  } => {
     const routeProps = props as RouteProps;
 
-    if (typeof routeProps.path !== 'string') {
-      throw new Error('Route path must be a string');
+    if (typeof routeProps.path !== "string") {
+      throw new Error("Route path must be a string");
     }
 
     if (
-      routeProps.path !== '*' &&
-      (!routeProps.path.startsWith('/') ||
-        routeProps.path.startsWith('//') ||
-        routeProps.path.includes('?') ||
-        routeProps.path.includes('#') ||
-        routeProps.path.split('/').some((segment) => segment === '.' || segment === '..'))
+      routeProps.path !== "*" &&
+      (!routeProps.path.startsWith("/") ||
+        routeProps.path.startsWith("//") ||
+        routeProps.path.includes("?") ||
+        routeProps.path.includes("#") ||
+        routeProps.path
+          .split("/")
+          .some((segment) => segment === "." || segment === ".."))
     ) {
-      throw new Error('Route path must be "*" or an absolute pathname without query or hash');
+      throw new Error(
+        'Route path must be "*" or an absolute pathname without query or hash',
+      );
     }
 
     const decoders = {} as RouteDecoderMap;
-    const lazyComponent = isLazyRouteDefinition(routeProps.component);
+    const isLazyComponent =
+      typeof routeProps.component === "function" &&
+      routeProps.component.length === 0;
 
-    if (!lazyComponent) {
-      if (typeof routeProps.component !== 'function') {
-        throw new Error('Invalid Route component');
-      }
-
-      if (routeProps.component.length === 0) {
-        throw new Error('Lazy routes must use lazyRoute(() => import(...))');
-      }
+    if (
+      !isLazyComponent &&
+      typeof routeProps.component !== "function"
+    ) {
+      throw new Error("Invalid Route component");
     }
 
     for (const key in routeProps) {
-      if (key === 'path' || key === 'component') {
+      if (key === "path" || key === "component") {
         continue;
       }
 
-      if (!key.startsWith('$')) {
+      if (!key.startsWith("$")) {
         throw new Error(`Unsupported Route prop: ${key}`);
       }
 
@@ -82,7 +98,7 @@
     id: Symbol(config.path),
     path: config.path,
     component: config.component,
-    decoders: config.decoders
+    decoders: config.decoders,
   } satisfies RouteEntry;
   let runtimeVersion = $state(0);
   const unsubscribe = subscribeRuntime(() => {
@@ -90,8 +106,14 @@
   });
   const unregister = registerRoute(entry);
   let resolvedComponent = $state<SyncRouteComponent | null>(null);
-  let lazyLoader = $state<LazyRouteLoader | null>(isLazyRouteDefinition(initialComponent) ? initialComponent.load : null);
-  let pendingLoad = $state<Promise<{ default: SyncRouteComponent }> | null>(null);
+  let lazyLoader = $state<LazyRouteLoader | null>(
+    typeof initialComponent === "function" && initialComponent.length === 0
+      ? (initialComponent as LazyRouteLoader)
+      : null,
+  );
+  let pendingLoad = $state<Promise<{ default: SyncRouteComponent }> | null>(
+    null,
+  );
   let lazyFailed = $state(false);
   let loadError = $state<unknown | null>(null);
   let destroyed = false;
@@ -102,20 +124,23 @@
     const initialDecoderKeys = Object.keys(config.decoders);
 
     if (nextConfig.path !== config.path) {
-      throw new Error('Route path cannot change after mount');
+      throw new Error("Route path cannot change after mount");
     }
 
     if (nextConfig.component !== initialComponent) {
-      throw new Error('Route component cannot change after mount');
+      throw new Error("Route component cannot change after mount");
     }
 
     if (nextDecoderKeys.length !== initialDecoderKeys.length) {
-      throw new Error('Route decoders cannot change after mount');
+      throw new Error("Route decoders cannot change after mount");
     }
 
     for (const key of nextDecoderKeys) {
-      if (nextConfig.decoders[key as keyof RouteDecoderMap] !== config.decoders[key as keyof RouteDecoderMap]) {
-        throw new Error('Route decoders cannot change after mount');
+      if (
+        nextConfig.decoders[key as keyof RouteDecoderMap] !==
+        config.decoders[key as keyof RouteDecoderMap]
+      ) {
+        throw new Error("Route decoders cannot change after mount");
       }
     }
   });
@@ -176,7 +201,13 @@
   });
 
   $effect(() => {
-    if (!active || resolvedComponent || !lazyLoader || pendingLoad || lazyFailed) {
+    if (
+      !active ||
+      resolvedComponent ||
+      !lazyLoader ||
+      pendingLoad ||
+      lazyFailed
+    ) {
       return;
     }
 
@@ -184,7 +215,7 @@
 
     if (!isPromiseLike(nextLoad)) {
       lazyFailed = true;
-      loadError = new Error('Lazy route loader must return a promise');
+      loadError = new Error("Lazy route loader must return a promise");
       return;
     }
 

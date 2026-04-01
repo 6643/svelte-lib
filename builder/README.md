@@ -6,11 +6,11 @@ Minimal Bun + Svelte 5 production build preset.
 
 当前仓库本身就是发布包源码仓库, 不是 monorepo 子包。README 中的路径、命令和配置说明都以仓库根目录为准。
 
-它保留独立项目形态, 包含 `src/`、`assets/`、`svelte-builder.config.json` 和 `package.json`。入口由构建器根据 `appComponent` 自动生成, 不再需要手写 `main.ts`。
+它保留独立项目形态, 包含 `src/`、`assets/`、`builder.ts` 和 `package.json`。入口由构建器根据 `appComponent` 自动生成, 不再需要手写 `main.ts`。
 
-统一配置文件名是 `svelte-builder.config.json`。
+统一配置文件名是 `builder.ts`。
 
-配置是纯 JSON, 不执行项目代码。旧的 `svelte-builder.config.ts` 已不再支持; 如果你仍在使用它, 请迁移为 `svelte-builder.config.json`。
+配置通过 `builder.ts` 的默认导出提供。旧的 `svelte-builder.config.json` 已不再支持; 如果你仍在使用它, 请迁移并重命名为 `builder.ts`。
 
 配置文件采用严格字段校验:
 
@@ -36,7 +36,7 @@ HTML 一律使用内置 shell:
 dev 源码边界:
 
 - 这里的“app 源码树”指 `appComponent` 归属的 `src/` 或其他顶级源码目录
-- dev 只直接暴露 app 源码树里的 `.ts`、`.js`、`.mjs`、`.svelte` 模块, 不直接暴露项目根上的 `svelte-builder.config.json`、测试文件或其他脚本
+- dev 只直接暴露 app 源码树里的 `.ts`、`.js`、`.mjs`、`.svelte` 模块, 不直接暴露项目根上的 `builder.ts`、测试文件或其他脚本
 - 若 `appComponent` 位于 `src/` 下的更深层目录, dev 仍会回收到 `src/` 作为 app 源码树和 watch 根
 - 若 `appComponent` 位于其他顶级源码目录, dev 会以该顶级目录作为 app 源码树和 watch 根
 - `appComponent` 若是符号链接, 它解析后的目标仍必须留在对应的 app 源码树内
@@ -57,39 +57,39 @@ dev 源码边界:
 
 `appComponent` 是可选配置:
 
-```json
-{
-    "appComponent": "src/App.svelte",
-    "appTitle": "Svelte Builder"
-}
+```ts
+export default {
+    appComponent: "src/App.svelte",
+    appTitle: "Svelte Builder",
+};
 ```
 
 `appComponent` 不配置时默认就是 `src/App.svelte`。
 
 `assetsDir` 是可选配置:
 
-```json
-{
-    "assetsDir": "assets",
-    "appTitle": "Svelte Builder"
-}
+```ts
+export default {
+    assetsDir: "assets",
+    appTitle: "Svelte Builder",
+};
 ```
 
-`assetsDir` 不配置时默认就是 `assets`。
+`assetsDir` 不配置时默认就是 `assets`。若默认 `assets/` 不存在, builder 会按“当前项目没有静态资源目录”处理; 若显式配置了 `assetsDir`, 但目标目录不存在, 会直接报错。
 
 `stripSvelteDiagnostics` 是可选配置:
 
-```json
-{
-    "stripSvelteDiagnostics": true
-}
+```ts
+export default {
+    stripSvelteDiagnostics: true,
+};
 ```
 
 `stripSvelteDiagnostics` 的行为边界:
 
 - `true` 时, 构建器会拦截 Svelte internal 的 diagnostics 模块, 去掉长错误文案, 但保留短错误码/警告码, 例如 `derived_references_self`、`hydration_mismatch`
 - `false` 时, 保留 Svelte 原始运行时诊断实现, 方便调试或排查升级兼容性问题
-- 这个能力依赖 Svelte internal 模块路径与导出形式, 升级 Svelte 后应重新执行一次 `bun test` 和 `cd demo && bun run build` 做回归验证
+- 这个能力依赖 Svelte internal 模块路径与导出形式, 升级 Svelte 后应重新执行一次 `bun test` 和 `bun run typecheck`, 并在真实消费项目里补跑一次 `svelte-builder build` 做回归验证
 
 最小目录形态:
 
@@ -98,7 +98,7 @@ demo/
   src/
     App.svelte
   assets/
-  svelte-builder.config.json
+  builder.ts
 ```
 
 静态资源语义固定为 `/assets/*`:
@@ -140,9 +140,11 @@ src/lazy/ButtonDemo.svelte   2026-03-18 11:11:11  4.1 KiB  1.9 KiB
 
 安全注意事项:
 
-- 配置文件固定为 `svelte-builder.config.json`, 它是纯 JSON 配置, 不执行项目代码
-- 旧的 `svelte-builder.config.ts` 已不再支持; 若项目中仍存在该文件, 请迁移并重命名为 `svelte-builder.config.json`
+- 配置文件固定为 `builder.ts`, 它通过默认导出提供构建配置
+- `builder.ts` 会作为模块直接执行, 然后读取它的默认导出; 只应在可信项目里运行, 不要把它当成纯声明式配置文件
+- 旧的 `svelte-builder.config.json` 已不再支持; 若项目中仍存在该文件, 请迁移并重命名为 `builder.ts`
 - dev server 的设计目标是本地开发, 不应当作为公网服务暴露; 当前 HTTP 500 响应会对客户端隐藏内部错误细节, 但控制台仍会输出完整异常, 方便本地排查
+- 若设置了 `PAGES_PROXY_URL`, dev server 只会把 `/items`、`/items/*`、`/cron` 和 `/cron/*` 转发到该上游; 像 `/itemshelf` 这类同前缀但不同边界的本地路由不会被代理, 且代理只允许 `GET/HEAD` 并会剥离 `Cookie`、`Authorization` 等凭证型请求头
 - dev 只暴露受控 app 源码树、`/_node_modules/*` 和 `/assets/*`, 并对路径穿越与符号链接逃逸做了边界校验, 但这不等于适合承载不可信访问流量
 - 若要部署到生产环境, 建议在反向代理或静态托管层补充安全响应头, 至少包括 `Content-Security-Policy`、`X-Content-Type-Options: nosniff` 和合适的 `Referrer-Policy`
 
@@ -159,15 +161,19 @@ svelte-builder dev
 svelte-builder build
 ```
 
-在这个仓库里运行 demo:
+当前仓库不再内置 `demo/` dogfood 项目。
+
+建议的回归验证方式是：
 
 ```bash
-cd demo
-bun install
-bun run dev
-bun run build
+bun test
+bun run typecheck
 ```
 
-这组命令是仓库内 dogfood 工作流, 用于验证当前仓库源码与安装拓扑。`demo/package.json` 当前通过 `file:..` 依赖仓库根目录包, 因此修改 builder 源码后建议先执行一次 `bun install`, 再运行 `bun run dev` 或 `bun run build`。如果你是在自己的项目里使用本包, 应按上面的包依赖方式集成, 而不是复制 `demo` 的仓库内脚本。
+如果你正在真实项目里使用本包, 还应在消费项目中额外执行一次：
 
-示例配置文件见 `demo/svelte-builder.config.json`。
+```bash
+svelte-builder build
+```
+
+这样能同时覆盖仓库内单元测试、类型检查, 以及真实项目里的构建集成路径。

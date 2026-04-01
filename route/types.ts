@@ -12,12 +12,7 @@ export type SyncRouteComponent = Component<any>;
 
 export type LazyRouteLoader = () => Promise<{ default: SyncRouteComponent }>;
 
-export type LazyRouteDefinition = {
-  kind: 'lazy-route';
-  load: LazyRouteLoader;
-};
-
-export type RouteComponent = SyncRouteComponent | LazyRouteDefinition;
+export type RouteComponent = SyncRouteComponent | LazyRouteLoader;
 
 export type RouteHistoryState = {
   __route: {

@@ -1,23 +1,37 @@
-<script>
+<script lang="ts" generics="T">
+    import type { Snippet } from "svelte";
+
     import { icon_drag_handle } from "../icons.ts";
+    import { getDragTranslateY, resolveDragIndex } from "./drag-layout.ts";
     import { reorderItems } from "./reorder.ts";
 
-    export let actions = undefined;
-    export let hookChange = () => {};
-    export let items = [];
-    export let renderItem;
+    let {
+        actions = undefined as Snippet<[T, number]> | undefined,
+        hookChange = (() => {}) as (items: T[], fromIndex: number, toIndex: number) => void,
+        items = [] as T[],
+        renderItem = undefined as unknown as Snippet<[T, number]>,
+    } = $props();
 
-    let containerEl = undefined;
-    let dragState = null;
+    let containerEl = undefined as HTMLDivElement | undefined;
+    let dragState = null as
+        | {
+              avgItemSize: number;
+              currentIndex: number;
+              draggedEl: HTMLElement;
+              initialIndex: number;
+              initialMouseY: number;
+              itemElements: HTMLElement[];
+          }
+        | null;
 
-    const calculateAvgItemSize = (itemElements) => {
+    const calculateAvgItemSize = ((itemElements) => {
         if (itemElements.length === 0) return 0;
         if (itemElements.length === 1) return itemElements[0].getBoundingClientRect().height;
 
         const firstRect = itemElements[0].getBoundingClientRect();
         const secondRect = itemElements[1].getBoundingClientRect();
         return firstRect.height + (secondRect.top - firstRect.bottom);
-    };
+    }) as (itemElements: HTMLElement[]) => number;
 
     const cleanupDrag = () => {
         document.removeEventListener("pointermove", handlePointerMove);
@@ -25,19 +39,22 @@
         dragState = null;
     };
 
-    const handlePointerDown = (event) => {
+    $effect(() => cleanupDrag);
+
+    const handlePointerDown = ((event) => {
         if (!containerEl || event.button !== 0 || !event.isPrimary) return;
 
-        const target = event.target;
+        const target = event.target as Element | null;
+        if (!target) return;
         const dragHandle = target.closest(".drag-handle");
         if (!dragHandle) return;
 
-        const draggedEl = dragHandle.closest(".list-item");
+        const draggedEl = dragHandle.closest(".list-item") as HTMLElement | null;
         if (!draggedEl) return;
 
         event.preventDefault();
 
-        const itemElements = Array.from(containerEl.children);
+        const itemElements = Array.from(containerEl.children) as HTMLElement[];
         const initialIndex = itemElements.indexOf(draggedEl);
         if (initialIndex === -1) return;
 
@@ -57,39 +74,31 @@
             draggedEl,
             initialIndex,
             initialMouseY: event.clientY,
+            itemElements,
         };
 
         document.addEventListener("pointermove", handlePointerMove);
         document.addEventListener("pointerup", handlePointerUp);
-    };
+    }) as (event: PointerEvent) => void;
 
-    const handlePointerMove = (event) => {
+    const handlePointerMove = ((event) => {
         if (!containerEl || !dragState) return;
 
-        const { avgItemSize, draggedEl, initialIndex, initialMouseY } = dragState;
-        const itemElements = Array.from(containerEl.children);
+        const { avgItemSize, currentIndex, draggedEl, initialIndex, initialMouseY, itemElements } = dragState;
         const deltaY = event.clientY - initialMouseY;
-        const maxIndex = itemElements.length - 1;
-        const nextIndex = Math.max(0, Math.min(initialIndex + Math.round(deltaY / avgItemSize), maxIndex));
+        const nextIndex = resolveDragIndex(initialIndex, deltaY, avgItemSize, itemElements.length);
 
         draggedEl.style.setProperty("--translate-y", `${deltaY}px`);
 
+        if (nextIndex === currentIndex) return;
+
         itemElements.forEach((itemEl, index) => {
             if (itemEl === draggedEl) return;
-
-            let translateY = 0;
-            if (initialIndex < nextIndex && index > initialIndex && index <= nextIndex) {
-                translateY = -avgItemSize;
-            }
-            if (initialIndex > nextIndex && index >= nextIndex && index < initialIndex) {
-                translateY = avgItemSize;
-            }
-
-            itemEl.style.setProperty("--translate-y", `${translateY}px`);
+            itemEl.style.setProperty("--translate-y", `${getDragTranslateY(initialIndex, nextIndex, index, avgItemSize)}px`);
         });
 
         dragState = { ...dragState, currentIndex: nextIndex };
-    };
+    }) as (event: PointerEvent) => void;
 
     const handlePointerUp = () => {
         if (!containerEl || !dragState) return;
@@ -97,7 +106,7 @@
         const { currentIndex, draggedEl, initialIndex } = dragState;
         cleanupDrag();
 
-        const itemElements = Array.from(containerEl.children);
+        const itemElements = Array.from(containerEl.children) as HTMLElement[];
         itemElements.forEach((itemEl) => {
             itemEl.style.removeProperty("--translate-y");
             itemEl.style.removeProperty("opacity");
@@ -114,7 +123,7 @@
     };
 </script>
 
-<div bind:this={containerEl} class="sort-list-box" on:pointerdown={handlePointerDown}>
+<div bind:this={containerEl} class="sort-list-box" onpointerdown={handlePointerDown}>
     {#each items as item, index}
         <div class="list-item">
             <div class="item-body">

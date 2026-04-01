@@ -32,6 +32,13 @@ let originalReplaceState: History['replaceState'] | null = null;
 let suppressPatchedHistorySync = false;
 let historyStateReferences: unknown[] = [undefined];
 let historyStateSnapshots: unknown[] = [undefined];
+const MAX_HISTORY_STATE_SNAPSHOT_ARRAY_LENGTH = 128;
+const MAX_HISTORY_STATE_SNAPSHOT_BINARY_BYTES = 16 * 1024;
+const MAX_HISTORY_STATE_SNAPSHOT_MAP_SIZE = 64;
+const MAX_HISTORY_STATE_SNAPSHOT_NODES = 256;
+const MAX_HISTORY_STATE_SNAPSHOT_OBJECT_KEYS = 64;
+const MAX_HISTORY_STATE_SNAPSHOT_SET_SIZE = 64;
+const MAX_HISTORY_STATE_SNAPSHOT_STRING_LENGTH = 4 * 1024;
 
 const invalidateRouteMatch = (): void => {
   matchDirty = true;
@@ -51,12 +58,106 @@ const isPlainHistoryStateObject = (state: unknown): state is Record<string, unkn
 const hasManagedRouteState = (state: unknown): state is { __route: unknown } =>
   !!state && typeof state === 'object' && '__route' in (state as Record<string, unknown>);
 
-const cloneHistoryStateSnapshot = (state: unknown): unknown => {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(state);
+const canSnapshotHistoryState = (
+  value: unknown,
+  budget = { nodes: MAX_HISTORY_STATE_SNAPSHOT_NODES },
+  visited = new WeakSet<object>()
+): boolean => {
+  budget.nodes -= 1;
+  if (budget.nodes < 0) {
+    return false;
   }
 
-  return state;
+  if (value == null) {
+    return true;
+  }
+
+  if (typeof value === 'string') {
+    return value.length <= MAX_HISTORY_STATE_SNAPSHOT_STRING_LENGTH;
+  }
+
+  if (typeof value !== 'object') {
+    return typeof value !== 'function' && typeof value !== 'symbol';
+  }
+
+  if (visited.has(value as object)) {
+    return true;
+  }
+
+  visited.add(value as object);
+
+  if (value instanceof Date || value instanceof RegExp) {
+    return true;
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return value.byteLength <= MAX_HISTORY_STATE_SNAPSHOT_BINARY_BYTES;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return value.byteLength <= MAX_HISTORY_STATE_SNAPSHOT_BINARY_BYTES;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length <= MAX_HISTORY_STATE_SNAPSHOT_ARRAY_LENGTH && value.every((entry) => canSnapshotHistoryState(entry, budget, visited));
+  }
+
+  if (value instanceof Map) {
+    if (value.size > MAX_HISTORY_STATE_SNAPSHOT_MAP_SIZE) {
+      return false;
+    }
+
+    for (const [entryKey, entryValue] of value.entries()) {
+      if (!canSnapshotHistoryState(entryKey, budget, visited) || !canSnapshotHistoryState(entryValue, budget, visited)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  if (value instanceof Set) {
+    if (value.size > MAX_HISTORY_STATE_SNAPSHOT_SET_SIZE) {
+      return false;
+    }
+
+    for (const entry of value.values()) {
+      if (!canSnapshotHistoryState(entry, budget, visited)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > MAX_HISTORY_STATE_SNAPSHOT_OBJECT_KEYS) {
+    return false;
+  }
+
+  for (const key of keys) {
+    if (!canSnapshotHistoryState((value as Record<PropertyKey, unknown>)[key], budget, visited)) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const cloneHistoryStateSnapshot = (state: unknown): unknown => {
+  if (!canSnapshotHistoryState(state)) {
+    return undefined;
+  }
+
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(state);
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
 };
 
 const areHistoryStateSnapshotsEqual = (
@@ -668,6 +769,8 @@ export const __createRouteHistoryStateForTest = (route: {
   index: number;
   stack: string[];
 }): RouteHistoryState['__route'] => createManagedRouteState(route, historyOwner);
+
+export const __createRouteHistorySnapshotForTest = (state: unknown): unknown => cloneHistoryStateSnapshot(state);
 
 export const __resetRouteSystemForTest = (): void => {
   runtimeWindow?.removeEventListener('popstate', handlePopState);
