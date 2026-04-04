@@ -16,6 +16,14 @@ test("tsconfig uses Bun's current type entry", () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["bun", "node", "svelte"]);
 });
 
+test("test helper re-exports Svelte's public client api", async () => {
+    const helper = await import("./helpers/svelte-client.ts");
+
+    expect(typeof helper.flushSync).toBe("function");
+    expect(typeof helper.svelteMount).toBe("function");
+    expect(typeof helper.svelteUnmount).toBe("function");
+});
+
 test("builder Bun types use module imports instead of legacy namespace references", () => {
     const files = [
         "builder/finalize-css.ts",

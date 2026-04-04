@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { JSDOM } from 'jsdom';
-// @ts-expect-error test-only client entry under Bun-only setup
-import { mount as svelteMount, unmount as svelteUnmount } from '../../node_modules/svelte/src/internal/client/render.js';
-// @ts-expect-error test-only client entry under Bun-only setup
-import { flush_sync as flushSync } from '../../node_modules/svelte/src/internal/client/runtime.js';
 import { __resetRouteSystemForTest, routePush } from '../router.svelte.ts';
+import { flushSync, svelteMount, svelteUnmount } from '../../tests/helpers/svelte-client.ts';
 import type { SyncRouteComponent } from '../types.ts';
 import { loadCompiledComponent } from './helpers/compile-svelte.ts';
 import { lifecycle, resetLifecycle } from './fixtures/lifecycle.ts';
