@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dir, "..");
@@ -98,4 +98,17 @@ test("builder README documents the intentional Svelte internal runtime boundary"
     expect(readme.includes("svelte/internal/client")).toBe(true);
     expect(readme.includes("upgrade-sensitive boundary")).toBe(true);
     expect(readme.includes("bun run build")).toBe(true);
+});
+
+test("builder source config uses ts and local counters use arrow functions", () => {
+    expect(existsSync(resolve(repoRoot, "builder/svelte.config.ts"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "builder/svelte.config.js"))).toBe(false);
+
+    const counterSource = readRepoFile("builder/src/lib/Counter.svelte");
+    const counter2Source = readRepoFile("builder/src/lib/Counter2.svelte");
+
+    expect(counterSource.includes("function increment")).toBe(false);
+    expect(counter2Source.includes("function increment")).toBe(false);
+    expect(/const increment = .*=>/.test(counterSource)).toBe(true);
+    expect(/const increment = .*=>/.test(counter2Source)).toBe(true);
 });
