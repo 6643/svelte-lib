@@ -1,5 +1,5 @@
 <script>
-    import FilledModal from "../../modal/FilledModal.svelte";
+    import FilledModal from "../ui/Modal.filled.svelte";
 </script>
 
 <FilledModal active={true}>

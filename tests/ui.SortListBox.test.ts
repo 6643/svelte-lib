@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { loadCompiledComponent } from "../../route/tests/helpers/compile-svelte.ts";
-import { flushSync, svelteMount, svelteUnmount } from "../../tests/helpers/svelte-client.ts";
+import { loadCompiledComponent } from "./route.helper.compile-svelte.ts";
+import { flushSync, svelteMount, svelteUnmount } from "./helpers.svelte-client.ts";
 
 let cleanupDom = () => {};
 
@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 test("SortListBox removes drag listeners when unmounted mid-drag", async () => {
-    const SortListBoxHarness = await loadCompiledComponent("./ui/sort-list-box/tests/fixtures/SortListBoxHarness.svelte");
+    const SortListBoxHarness = await loadCompiledComponent("./tests/ui.fixture.SortListBoxHarness.svelte");
     const target = document.createElement("div");
     document.body.append(target);
 

@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { JSDOM } from 'jsdom';
 
-import { buildPushState, buildReplaceState, normalizeHistoryState } from '../history.ts';
-import { getRawAnchorNavigationTarget, normalizeNavigationTarget } from '../navigation.ts';
-import { decodeQueryValue, decodeRouteProps } from '../query.ts';
-import { resolveLazyRouteComponent } from '../route-validation.ts';
+import { buildPushState, buildReplaceState, normalizeHistoryState } from '../route/history.ts';
+import { getRawAnchorNavigationTarget, normalizeNavigationTarget } from '../route/navigation.ts';
+import { decodeQueryValue, decodeRouteProps } from '../route/query.ts';
+import { resolveLazyRouteComponent } from '../route/route-validation.ts';
 
 const PRIMARY_OWNER = 'owner-primary';
 const FOREIGN_OWNER = 'owner-foreign';
@@ -305,7 +305,7 @@ describe('history state', () => {
 
 describe('public api', () => {
   test('exports the route api from the public entry', async () => {
-    const entry = await import('../_.ts');
+    const entry = await import('../route/_.ts');
 
     expect(typeof entry.Route).toBe('string');
     expect('lazyRoute' in entry).toBe(false);

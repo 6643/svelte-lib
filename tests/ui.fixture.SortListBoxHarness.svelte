@@ -1,7 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-    import SortListBox from "../../SortListBox.svelte";
+    import SortListBox from "../ui/SortListBox.svelte";
 
     const items = ["A", "B", "C"];
 </script>

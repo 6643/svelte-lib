@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import * as routeExports from '../_.ts';
+import * as routeExports from '../route/_.ts';
 
 test('route public api does not export lazyRoute', () => {
   expect('lazyRoute' in routeExports).toBe(false);

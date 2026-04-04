@@ -1,5 +1,5 @@
 <script>
-    import StringInput from "../../input/StringInput.svelte";
+    import StringInput from "../ui/Input.string.svelte";
 </script>
 
 <StringInput label="Name" value="Ada">

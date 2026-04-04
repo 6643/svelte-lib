@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { loadCompiledComponent } from "../../route/tests/helpers/compile-svelte.ts";
-import { flushSync, svelteMount, svelteUnmount } from "../../tests/helpers/svelte-client.ts";
+import { loadCompiledComponent } from "./route.helper.compile-svelte.ts";
+import { flushSync, svelteMount, svelteUnmount } from "./helpers.svelte-client.ts";
 
 let cleanupDom = () => {};
 
@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 test("Swiper does not attach listeners after it unmounts before async setup completes", async () => {
-    const Swiper = await loadCompiledComponent("./ui/swiper/Swiper.svelte");
+    const Swiper = await loadCompiledComponent("./ui/Swiper.svelte");
     const target = document.createElement("div");
     document.body.append(target);
 

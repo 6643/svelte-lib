@@ -1,7 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import { lifecycle } from './lifecycle.ts';
+  import { lifecycle } from './route.fixture.lifecycle.ts';
 
   let props = $props<{ id?: number; path?: string; component?: string }>();
 

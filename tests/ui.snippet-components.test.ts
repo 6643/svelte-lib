@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
-import { loadCompiledComponent } from "../../route/tests/helpers/compile-svelte.ts";
-import { flushSync, svelteMount, svelteUnmount } from "../../tests/helpers/svelte-client.ts";
+import { loadCompiledComponent } from "./route.helper.compile-svelte.ts";
+import { flushSync, svelteMount, svelteUnmount } from "./helpers.svelte-client.ts";
 
 let cleanupDom = () => {};
 
@@ -80,7 +80,7 @@ afterEach(() => {
 });
 
 test("Block renders snippet props into the expected regions", async () => {
-    const Harness = await loadCompiledComponent("./ui/tests/fixtures/BlockHarness.svelte");
+    const Harness = await loadCompiledComponent("./tests/ui.fixture.BlockHarness.svelte");
     const mounted = svelteMount(Harness, { target: document.body });
 
     flushSync();
@@ -93,8 +93,8 @@ test("Block renders snippet props into the expected regions", async () => {
 });
 
 test("StringInput and RangeInput keep snippet add-ons on the expected sides", async () => {
-    const StringHarness = await loadCompiledComponent("./ui/tests/fixtures/StringInputHarness.svelte");
-    const RangeHarness = await loadCompiledComponent("./ui/tests/fixtures/RangeInputHarness.svelte");
+    const StringHarness = await loadCompiledComponent("./tests/ui.fixture.StringInputHarness.svelte");
+    const RangeHarness = await loadCompiledComponent("./tests/ui.fixture.RangeInputHarness.svelte");
     const stringTarget = document.createElement("div");
     const rangeTarget = document.createElement("div");
 
@@ -116,8 +116,8 @@ test("StringInput and RangeInput keep snippet add-ons on the expected sides", as
 });
 
 test("FilledModal and Swiper render snippet children inside their host containers", async () => {
-    const ModalHarness = await loadCompiledComponent("./ui/tests/fixtures/FilledModalHarness.svelte");
-    const SwiperHarness = await loadCompiledComponent("./ui/tests/fixtures/SwiperHarness.svelte");
+    const ModalHarness = await loadCompiledComponent("./tests/ui.fixture.FilledModalHarness.svelte");
+    const SwiperHarness = await loadCompiledComponent("./tests/ui.fixture.SwiperHarness.svelte");
     const modalTarget = document.createElement("div");
     const swiperTarget = document.createElement("div");
 

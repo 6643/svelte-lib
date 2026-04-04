@@ -1,9 +1,9 @@
 <script lang="ts" generics="T">
     import type { Snippet } from "svelte";
 
-    import { icon_drag_handle } from "../icons.ts";
-    import { getDragTranslateY, resolveDragIndex } from "./drag-layout.ts";
-    import { reorderItems } from "./reorder.ts";
+    import { icon_drag_handle } from "./icons.ts";
+    import { getDragTranslateY, resolveDragIndex } from "./SortListBox.drag-layout.ts";
+    import { reorderItems } from "./SortListBox.reorder.ts";
 
     let {
         actions = undefined as Snippet<[T, number]> | undefined,

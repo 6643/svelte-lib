@@ -2,8 +2,8 @@
     import { onMount } from "svelte";
     import type { Snippet } from "svelte";
 
-    import { ensureSwiperBundleLoaded } from "./swiper-bundle-loader.ts";
-    import { syncSwiperVideoAutoplay } from "./video-autoplay.ts";
+    import { ensureSwiperBundleLoaded } from "./Swiper.bundle-loader.ts";
+    import { syncSwiperVideoAutoplay } from "./Swiper.video-autoplay.ts";
 
     export let autoHeight = false;
     export let autoplayDelay = undefined;

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { JSDOM } from 'jsdom';
 
-import { createManagedRouteState } from '../history.ts';
+import { createManagedRouteState } from '../route/history.ts';
 import {
   __createRouteHistoryStateForTest,
   __createRouteHistorySnapshotForTest,
@@ -15,7 +15,7 @@ import {
   routePush,
   routeReplace,
   subscribeRuntime
-} from '../router.svelte.ts';
+} from '../route/router.svelte.ts';
 
 let cleanupDom = () => {};
 

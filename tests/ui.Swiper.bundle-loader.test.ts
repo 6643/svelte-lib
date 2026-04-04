@@ -7,7 +7,7 @@ import {
     __resetSwiperBundleLoaderForTest,
     createSwiperBundleScript,
     ensureSwiperBundleLoaded,
-} from "./swiper-bundle-loader.ts";
+} from "../ui/Swiper.bundle-loader.ts";
 
 afterEach(() => {
     __resetSwiperBundleLoaderForTest();

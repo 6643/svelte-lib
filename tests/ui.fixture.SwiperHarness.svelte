@@ -1,5 +1,5 @@
 <script>
-    import Swiper from "../../swiper/Swiper.svelte";
+    import Swiper from "../ui/Swiper.svelte";
 </script>
 
 <Swiper>

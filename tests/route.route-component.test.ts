@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { JSDOM } from 'jsdom';
-import { __resetRouteSystemForTest, routePush } from '../router.svelte.ts';
-import { flushSync, svelteMount, svelteUnmount } from '../../tests/helpers/svelte-client.ts';
-import type { SyncRouteComponent } from '../types.ts';
-import { loadCompiledComponent } from './helpers/compile-svelte.ts';
-import { lifecycle, resetLifecycle } from './fixtures/lifecycle.ts';
+import { __resetRouteSystemForTest, routePush } from '../route/router.svelte.ts';
+import { flushSync, svelteMount, svelteUnmount } from './helpers.svelte-client.ts';
+import type { SyncRouteComponent } from '../route/types.ts';
+import { loadCompiledComponent } from './route.helper.compile-svelte.ts';
+import { lifecycle, resetLifecycle } from './route.fixture.lifecycle.ts';
 
 let cleanupDom = () => {};
 let mounted: any = null;
@@ -89,7 +89,7 @@ afterEach(() => {
 describe('Route component', () => {
   test('renders wildcard route when no exact path matches', async () => {
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const NotFound = await loadCompiledComponent('./route/tests/fixtures/NotFound.svelte');
+    const NotFound = await loadCompiledComponent('./tests/route.fixture.NotFound.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -112,7 +112,7 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -130,8 +130,8 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
-    const SyncB = await loadCompiledComponent('./route/tests/fixtures/SyncB.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
+    const SyncB = await loadCompiledComponent('./tests/route.fixture.SyncB.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -150,8 +150,8 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
-    const SyncB = await loadCompiledComponent('./route/tests/fixtures/SyncB.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
+    const SyncB = await loadCompiledComponent('./tests/route.fixture.SyncB.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -182,7 +182,7 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -211,8 +211,8 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
-    const SyncB = await loadCompiledComponent('./route/tests/fixtures/SyncB.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
+    const SyncB = await loadCompiledComponent('./tests/route.fixture.SyncB.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -235,8 +235,8 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
-    const SyncB = await loadCompiledComponent('./route/tests/fixtures/SyncB.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
+    const SyncB = await loadCompiledComponent('./tests/route.fixture.SyncB.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -259,8 +259,8 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
-    const SyncB = await loadCompiledComponent('./route/tests/fixtures/SyncB.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
+    const SyncB = await loadCompiledComponent('./tests/route.fixture.SyncB.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -288,7 +288,7 @@ describe('Route component', () => {
 
   test('throws for invalid extra props', async () => {
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -306,7 +306,7 @@ describe('Route component', () => {
 
   test('throws for bare relative route paths', async () => {
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -323,7 +323,7 @@ describe('Route component', () => {
 
   test('throws for route paths that include query strings', async () => {
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -340,7 +340,7 @@ describe('Route component', () => {
 
   test('throws for route paths that include dot segments', async () => {
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -361,7 +361,7 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -385,7 +385,7 @@ describe('Route component', () => {
     cleanupDom = installDom('/');
     __resetRouteSystemForTest();
 
-    const MutableRouteHarness = await loadCompiledComponent('./route/tests/fixtures/MutableRouteHarness.svelte');
+    const MutableRouteHarness = await loadCompiledComponent('./tests/route.fixture.MutableRouteHarness.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -404,7 +404,7 @@ describe('Route component', () => {
     cleanupDom = installDom('/a');
     __resetRouteSystemForTest();
 
-    const MutableRoutePathHarness = await loadCompiledComponent('./route/tests/fixtures/MutableRoutePathHarness.svelte');
+    const MutableRoutePathHarness = await loadCompiledComponent('./tests/route.fixture.MutableRoutePathHarness.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -423,7 +423,7 @@ describe('Route component', () => {
     cleanupDom = installDom('/decoder?id=1');
     __resetRouteSystemForTest();
 
-    const MutableRouteDecoderHarness = await loadCompiledComponent('./route/tests/fixtures/MutableRouteDecoderHarness.svelte');
+    const MutableRouteDecoderHarness = await loadCompiledComponent('./tests/route.fixture.MutableRouteDecoderHarness.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -471,7 +471,7 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const LazyTarget = await loadCompiledComponent('./route/tests/fixtures/LazyTarget.svelte');
+    const LazyTarget = await loadCompiledComponent('./tests/route.fixture.LazyTarget.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -510,7 +510,7 @@ describe('Route component', () => {
     resetLifecycle();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -549,7 +549,7 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -592,7 +592,7 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -668,7 +668,7 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 
@@ -769,7 +769,7 @@ describe('Route component', () => {
     __resetRouteSystemForTest();
 
     const Route = await loadCompiledComponent('./route/Route.svelte');
-    const SyncA = await loadCompiledComponent('./route/tests/fixtures/SyncA.svelte');
+    const SyncA = await loadCompiledComponent('./tests/route.fixture.SyncA.svelte');
     const target = document.createElement('div');
     document.body.append(target);
 

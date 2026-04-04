@@ -1,9 +1,9 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import Route from '../../Route.svelte';
+  import Route from '../route/Route.svelte';
 
-  import SyncA from './SyncA.svelte';
+  import SyncA from './route.fixture.SyncA.svelte';
 
   let current = $state<NumberConstructor | StringConstructor>(Number);
 

@@ -1,5 +1,5 @@
 <script>
-    import Block from "../../box/Block.svelte";
+    import Block from "../ui/Block.svelte";
 </script>
 
 <Block headerTitle="Title" footerLeft="Left">

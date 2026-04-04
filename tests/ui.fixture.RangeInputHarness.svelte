@@ -1,5 +1,5 @@
 <script>
-    import RangeInput from "../../input/RangeInput.svelte";
+    import RangeInput from "../ui/Input.range.svelte";
 </script>
 
 <RangeInput label="Volume" value={4}>

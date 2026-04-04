@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { getDragTranslateY, resolveDragIndex } from "./drag-layout.ts";
+import { getDragTranslateY, resolveDragIndex } from "../ui/SortListBox.drag-layout.ts";
 
 test("resolveDragIndex clamps to the available item range", () => {
     expect(resolveDragIndex(1, 0, 40, 4)).toBe(1);

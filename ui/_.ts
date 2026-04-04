@@ -1,12 +1,12 @@
 // @ts-nocheck
-export { default as Block } from "./box/Block.svelte";
-export { default as FilledButton } from "./button/FilledButton.svelte";
-export { default as IconButton } from "./button/IconButton.svelte";
-export { default as TextButton } from "./button/TextButton.svelte";
-export { default as RangeInput } from "./input/RangeInput.svelte";
-export { default as StringInput } from "./input/StringInput.svelte";
-export { default as FilledModal } from "./modal/FilledModal.svelte";
-export { default as Plyr } from "./plyr/Plyr.svelte";
-export { default as SortListBox } from "./sort-list-box/SortListBox.svelte";
-export { default as Swiper } from "./swiper/Swiper.svelte";
+export { default as Block } from "./Block.svelte";
+export { default as FilledButton } from "./Button.filled.svelte";
+export { default as IconButton } from "./Button.icon.svelte";
+export { default as TextButton } from "./Button.text.svelte";
+export { default as RangeInput } from "./Input.range.svelte";
+export { default as StringInput } from "./Input.string.svelte";
+export { default as FilledModal } from "./Modal.filled.svelte";
+export { default as Plyr } from "./Plyr.svelte";
+export { default as SortListBox } from "./SortListBox.svelte";
+export { default as Swiper } from "./Swiper.svelte";
 export * from "./icons.ts";
