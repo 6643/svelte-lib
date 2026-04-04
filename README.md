@@ -76,6 +76,13 @@ bun /._/svelte-lib/builder/cli.ts build
 bun /._/svelte-lib/builder/cli.ts dev
 ```
 
+如果你在当前源码仓库里调试 `builder/` 本身，统一通过根 `package.json` 调用：
+
+```bash
+bun run builder:build
+bun run builder:dev
+```
+
 如果你的包管理器已经正确把 bin 链接到项目里，也可以直接使用：
 
 ```bash

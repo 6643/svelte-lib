@@ -6,7 +6,7 @@ Minimal Bun + Svelte 5 production build preset.
 
 当前仓库本身就是发布包源码仓库, 不是 monorepo 子包。README 中的路径、命令和配置说明都以仓库根目录为准。
 
-它保留独立项目形态, 包含 `src/`、`assets/`、`builder.ts` 和 `package.json`。入口由构建器根据 `appComponent` 自动生成, 不再需要手写 `main.ts`。
+它保留独立项目形态, 包含 `src/`、`assets/` 和 `builder.ts`。入口由构建器根据 `appComponent` 自动生成, 不再需要手写 `main.ts`。
 
 统一配置文件名是 `builder.ts`。
 
@@ -158,15 +158,24 @@ src/lazy/ButtonDemo.svelte   2026-03-18 11:11:11  4.1 KiB  1.9 KiB
 这不是通用 public API 保证, 而是当前构建器行为所需的受控兼容边界。升级 Svelte 后, 应至少重新执行:
 
 ```bash
-bun test
+bun run test
 bun run typecheck
-cd builder && bun run build
+bun run builder:build
 ```
+
+当前源码仓库的依赖由仓库根目录统一管理。
 
 安装依赖:
 
 ```bash
 bun install
+```
+
+在当前源码仓库里运行 builder:
+
+```bash
+bun run builder:dev
+bun run builder:build
 ```
 
 作为项目依赖使用:
