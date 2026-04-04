@@ -27,7 +27,6 @@
         "typescript": "latest"
     },
     "peerDependencies": {
-        "svelte": "latest",
-        "typescript": "latest"
+        "svelte": "latest"
     }
 }

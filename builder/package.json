@@ -16,11 +16,9 @@
     "devDependencies": {
         "@types/bun": "latest",
         "@types/node": "latest",
-        "esbuild": "latest",
         "svelte": "latest"
     },
     "peerDependencies": {
-        "svelte": "latest",
-        "typescript": "latest"
+        "svelte": "latest"
     }
 }

@@ -22,18 +22,15 @@ test("root and builder packages follow the repository latest policy", () => {
 
     expect(rootPackage.peerDependencies).toEqual({
         svelte: "latest",
-        typescript: "latest",
     });
 
     expect(builderPackage.devDependencies).toEqual({
         "@types/bun": "latest",
         "@types/node": "latest",
-        esbuild: "latest",
         svelte: "latest",
     });
 
     expect(builderPackage.peerDependencies).toEqual({
         svelte: "latest",
-        typescript: "latest",
     });
 });
