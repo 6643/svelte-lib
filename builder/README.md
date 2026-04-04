@@ -2,8 +2,6 @@
 
 Minimal Bun + Svelte 5 production build preset.
 
-`demo` 是仓库内 dogfood 示例, 用来验证当前仓库里的构建器行为和回归场景, 不作为发布包消费者模板。
-
 当前仓库本身就是发布包源码仓库, 不是 monorepo 子包。README 中的路径、命令和配置说明都以仓库根目录为准。
 
 它保留独立项目形态, 包含 `src/`、`assets/` 和 `builder.ts`。入口由构建器根据 `appComponent` 自动生成, 不再需要手写 `main.ts`。
@@ -94,11 +92,10 @@ export default {
 最小目录形态:
 
 ```text
-demo/
-  src/
-    App.svelte
-  assets/
-  builder.ts
+src/
+  App.svelte
+assets/
+builder.ts
 ```
 
 静态资源语义固定为 `/assets/*`:
@@ -185,7 +182,7 @@ svelte-builder dev
 svelte-builder build
 ```
 
-当前仓库不再内置 `demo/` dogfood 项目。
+当前仓库不再内置任何 builder demo 组件或 dogfood 项目。
 
 建议的回归验证方式是：
 

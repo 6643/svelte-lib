@@ -218,16 +218,8 @@ test("builder README documents the intentional Svelte internal runtime boundary"
 test("builder source config uses ts and local counters use arrow functions", () => {
     expect(existsSync(resolve(repoRoot, "builder/svelte.config.ts"))).toBe(true);
     expect(existsSync(resolve(repoRoot, "builder/svelte.config.js"))).toBe(false);
-    expect(existsSync(resolve(repoRoot, "builder/demo.Counter.svelte"))).toBe(true);
-    expect(existsSync(resolve(repoRoot, "builder/demo.Counter2.svelte"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "builder/demo.Counter.svelte"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "builder/demo.Counter2.svelte"))).toBe(false);
     expect(existsSync(resolve(repoRoot, "builder/src/lib/Counter.svelte"))).toBe(false);
     expect(existsSync(resolve(repoRoot, "builder/src/lib/Counter2.svelte"))).toBe(false);
-
-    const counterSource = readRepoFile("builder/demo.Counter.svelte");
-    const counter2Source = readRepoFile("builder/demo.Counter2.svelte");
-
-    expect(counterSource.includes("function increment")).toBe(false);
-    expect(counter2Source.includes("function increment")).toBe(false);
-    expect(/const increment = .*=>/.test(counterSource)).toBe(true);
-    expect(/const increment = .*=>/.test(counter2Source)).toBe(true);
 });
