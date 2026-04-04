@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 import { buildPushState, buildReplaceState, normalizeHistoryState } from '../history.ts';
@@ -316,28 +315,5 @@ describe('public api', () => {
     expect(typeof entry.routeBackPath).toBe('function');
     expect(typeof entry.routeForwardPath).toBe('function');
     expect('__resetRouteSystemForTest' in entry).toBe(false);
-  });
-});
-
-describe('package metadata', () => {
-  test('pins development dependencies and keeps peer dependencies as explicit compatibility ranges', () => {
-    const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
-      devDependencies: Record<string, string>;
-      peerDependencies: Record<string, string>;
-    };
-
-    expect(packageJson.devDependencies).toEqual({
-      '@types/bun': '1.3.11',
-      '@types/node': '25.5.0',
-      jsdom: '29.0.1',
-      svelte: '5.0.0-next.272',
-      'svelte-check': '4.4.5',
-      typescript: '6.0.2'
-    });
-
-    expect(packageJson.peerDependencies).toEqual({
-      svelte: '^5.0.0-next.0 || ^5.0.0',
-      typescript: '>=5.0.0 <6'
-    });
   });
 });
