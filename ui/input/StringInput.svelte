@@ -1,17 +1,22 @@
-<script>
-    export let changed = undefined;
+<script lang="ts">
+    import type { Snippet } from "svelte";
+
+    export let changed: ((value: string) => void) | undefined = undefined;
+    export let left: Snippet | undefined = undefined;
     export let label = "";
-    export let maxLen = undefined;
-    export let minLen = undefined;
-    export let validate = undefined;
+    export let maxLen: number | undefined = undefined;
+    export let minLen: number | undefined = undefined;
+    export let right: Snippet | undefined = undefined;
+    export let validate: ((value: string) => string | undefined) | undefined = undefined;
     export let value = "";
 
     let currentValue = value;
+    let error: string | undefined = undefined;
 
     $: currentValue = value ?? "";
     $: error = validate?.(currentValue);
 
-    const handleInput = (event) => {
+    const handleInput = (event: Event & { currentTarget: EventTarget & HTMLInputElement }) => {
         const nextValue = event.currentTarget.value;
         currentValue = nextValue;
         changed?.(nextValue);
@@ -25,9 +30,13 @@
     </div>
 
     <div>
-        <slot name="left" />
-        <input inputmode="text" maxlength={maxLen} minlength={minLen} on:input={handleInput} placeholder=" " readOnly={!changed} spellcheck={false} value={currentValue} />
-        <slot name="right" />
+        {#if left}
+            {@render left()}
+        {/if}
+        <input inputmode="text" maxlength={maxLen} minlength={minLen} oninput={handleInput} placeholder=" " readOnly={!changed} spellcheck={false} value={currentValue} />
+        {#if right}
+            {@render right()}
+        {/if}
     </div>
 </label>
 

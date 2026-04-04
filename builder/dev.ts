@@ -3,6 +3,7 @@ import { existsSync, lstatSync, readdirSync, realpathSync, statSync, watch, type
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
+import type { ErrorLike, Server } from "bun";
 import { compile } from "svelte/compiler";
 import {
     createHtmlShell,
@@ -1085,7 +1086,7 @@ const transpileTypeScriptForDev = async (rootDir: string, modulePath: string, sh
         .catch((error) => fail(`Failed to transpile ${modulePath}: ${getErrorMessage(error)}`));
 };
 
-const createServerHandle = (server: Bun.Server<undefined>): DevServerHandle => ({
+const createServerHandle = (server: Server<undefined>): DevServerHandle => ({
     port: server.port ?? 0,
     stop: async () => {
         server.stop(true);
@@ -1097,9 +1098,9 @@ const resolveDevPort = (config: BuildSvelteOptions): number => config.port ?? 30
 
 const createEphemeralPortCandidate = (): number => randomInt(DEV_PORT_RANGE_MIN, DEV_PORT_RANGE_MAX + 1);
 
-type BunServeOptions = Bun.Serve.Options<undefined>;
+type BunServeOptions = Parameters<typeof Bun.serve>[0];
 type DevFetchHandler = (req: Request) => Response | Promise<Response>;
-type DevErrorHandler = (error: Bun.ErrorLike) => Response | Promise<Response> | void | Promise<void>;
+type DevErrorHandler = (error: ErrorLike) => Response | Promise<Response> | void | Promise<void>;
 
 const startServer = async (
     config: BuildSvelteOptions,
@@ -1370,7 +1371,7 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
 
             return new Response("Not Found", { status: 404 });
         },
-        (error: Bun.ErrorLike) => {
+        (error: ErrorLike) => {
             console.error(error);
             return createInternalServerErrorResponse();
         },

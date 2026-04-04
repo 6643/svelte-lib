@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import type { BuildArtifact } from "bun";
 import type { Result } from "./build";
 
 export type StagedJavaScriptAsset = {
@@ -77,10 +78,10 @@ const areNameMapsEqual = (left: Map<string, string>, right: Map<string, string>)
     left.size === right.size && Array.from(left.entries()).every(([key, value]) => right.get(key) === value);
 
 const readStagedJavaScriptAssets = async (
-    outputs: Bun.BuildArtifact[],
+    outputs: BuildArtifact[],
 ): Promise<Result<StagedJavaScriptAsset[]>> => {
     const jsOutputs = outputs.filter(
-        (output): output is Bun.BuildArtifact & { kind: "chunk" | "entry-point" } =>
+        (output): output is BuildArtifact & { kind: "chunk" | "entry-point" } =>
             (output.kind === "chunk" || output.kind === "entry-point") && output.path.endsWith(".js"),
     );
 
@@ -97,7 +98,7 @@ const readStagedJavaScriptAssets = async (
 };
 
 export const finalizeJavaScriptAssets = async (
-    outputs: Bun.BuildArtifact[],
+    outputs: BuildArtifact[],
     createFinalAssetFile: (content: string, extension: ".js") => string,
     maxPasses: number,
 ): Promise<Result<FinalJavaScriptAsset[]>> => {

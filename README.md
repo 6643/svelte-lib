@@ -33,6 +33,38 @@ import { Route } from "svelte-lib/route";
 import { runConfiguredBuild } from "svelte-lib/builder";
 ```
 
+## Svelte 5 用法
+
+组合型 UI 组件现在默认按 snippet prop API 使用：
+
+```svelte
+<script lang="ts">
+  import { Block, FilledModal, StringInput } from "svelte-lib/ui";
+</script>
+
+<Block headerTitle="Profile" footerLeft="Tips">
+  {#snippet headerActions()}
+    <button type="button">Save</button>
+  {/snippet}
+
+  {#snippet children()}
+    <StringInput label="Name" value="Ada">
+      {#snippet left()}
+        <span>@</span>
+      {/snippet}
+    </StringInput>
+  {/snippet}
+</Block>
+
+<FilledModal active={true}>
+  {#snippet children()}
+    <div>Modal Content</div>
+  {/snippet}
+</FilledModal>
+```
+
+组件内部事件处理也统一使用当前 Svelte 5 推荐的事件属性写法，例如 `onclick={handleClick}`、`oninput={handleInput}`。
+
 ## CLI
 
 `svelte-lib` 暴露了 `svelte-builder` 这个 bin，但是否自动出现在 `.bin/` 取决于消费项目的安装方式。

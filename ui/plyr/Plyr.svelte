@@ -12,7 +12,7 @@
     };
 </script>
 
-<video autoplay controls playsinline src={src} on:click={togglePlay}>
+<video autoplay controls playsinline src={src} onclick={togglePlay}>
     <track kind="captions" />
 </video>
 

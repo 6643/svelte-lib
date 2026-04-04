@@ -20,7 +20,7 @@
     };
 </script>
 
-<button class="text-button" disabled={!tap || isRunning} on:click={handleClick} style:color={color}>
+<button class="text-button" disabled={!tap || isRunning} onclick={handleClick} style:color={color}>
     {#if icon}
         <svg viewBox="0 -960 960 960" aria-hidden="true">
             {@html icon}

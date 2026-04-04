@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { BuildConfig } from "bun";
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -33,7 +34,7 @@ const minifyCssContent = async (content: string): Promise<Result<string>> => {
             minify: true,
             target: "browser",
             write: false,
-        } as Bun.BuildConfig & { write: false });
+        } as BuildConfig & { write: false });
 
         if (!result.success) {
             return fail(`Failed to minify CSS bundle: ${formatBuildLogs(result.logs)}`);

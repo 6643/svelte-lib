@@ -3,6 +3,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { compile } from 'svelte/compiler';
+import type { Component } from 'svelte';
 
 const cacheRoot = resolve('.bun-svelte-cache');
 
@@ -51,8 +52,8 @@ const compileToFile = async (sourceFile: string): Promise<string> => {
   return outputFile;
 };
 
-export const loadCompiledComponent = async (sourceFile: string): Promise<unknown> => {
+export const loadCompiledComponent = async (sourceFile: string): Promise<Component<any>> => {
   const outputFile = await compileToFile(sourceFile);
   const module = await import(pathToFileURL(outputFile).href);
-  return module.default;
+  return module.default as Component<any>;
 };

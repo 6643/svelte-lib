@@ -1,5 +1,6 @@
-<script>
+<script lang="ts">
     import { onMount } from "svelte";
+    import type { Snippet } from "svelte";
 
     import { ensureSwiperBundleLoaded } from "./swiper-bundle-loader.ts";
     import { syncSwiperVideoAutoplay } from "./video-autoplay.ts";
@@ -13,13 +14,30 @@
     export let slidesPerView = 1;
     export let style = "";
     export let watchSlidesProgress = false;
+    export let children: Snippet | undefined = undefined;
 
-    let swiperEl;
+    type SwiperRuntime = {
+        autoplay?: { start?: () => void; stop?: () => void };
+        off?: (event: string, handler: () => void) => void;
+        on?: (event: string, handler: () => void) => void;
+        params?: { autoplay?: { enabled?: boolean } };
+        slides: Array<{
+            classList: { contains: (name: string) => boolean };
+            querySelectorAll: (selector: string) => ArrayLike<HTMLVideoElement> | Iterable<HTMLVideoElement>;
+        }>;
+    };
+
+    type SwiperElement = HTMLElement & {
+        swiper?: SwiperRuntime;
+    };
+
+    let swiperEl: SwiperElement | undefined = undefined;
 
     const syncAttributes = () => {
-        if (!swiperEl) return;
+        const element = swiperEl;
+        if (!element) return;
 
-        const attributes = [
+        const attributes: Array<[string, string | undefined]> = [
             ["auto-height", autoHeight ? "true" : undefined],
             ["autoplay-delay", autoplayDelay ? String(autoplayDelay) : undefined],
             ["initial-slide", String(initialSlide)],
@@ -33,15 +51,15 @@
 
         attributes.forEach(([name, value]) => {
             if (value === undefined) {
-                swiperEl.removeAttribute(name);
+                element.removeAttribute(name);
                 return;
             }
 
-            swiperEl.setAttribute(name, value);
+            element.setAttribute(name, value);
         });
     };
 
-    const updateAutoplay = (swiper) => syncSwiperVideoAutoplay(swiper);
+    const updateAutoplay = (swiper: SwiperRuntime) => syncSwiperVideoAutoplay(swiper);
 
     onMount(() => {
         let cleanup = () => {};
@@ -84,7 +102,9 @@
 </script>
 
 <swiper-container bind:this={swiperEl} class="swiper-root">
-    <slot />
+    {#if children}
+        {@render children()}
+    {/if}
 </swiper-container>
 
 <style>

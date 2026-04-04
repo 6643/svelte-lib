@@ -15,7 +15,7 @@
     },
     "type": "module",
     "scripts": {
-        "test": "bun test",
+        "test": "bun test --conditions=browser",
         "typecheck": "svelte-check --tsconfig ./tsconfig.json"
     },
     "devDependencies": {

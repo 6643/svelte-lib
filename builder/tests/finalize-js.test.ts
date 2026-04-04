@@ -1,8 +1,9 @@
 // @ts-nocheck
 import { expect, test } from "bun:test";
+import type { BuildArtifact } from "bun";
 import { finalizeJavaScriptAssets } from "../finalize-js";
 
-type FakeOutput = Bun.BuildArtifact & {
+type FakeOutput = BuildArtifact & {
     kind: "chunk" | "entry-point" | "asset";
     path: string;
     text: () => Promise<string>;

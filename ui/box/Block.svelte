@@ -1,22 +1,37 @@
-<script>
-    export let headerTitle = "";
+<script lang="ts">
+    import type { Snippet } from "svelte";
+
+    export let children: Snippet | undefined = undefined;
     export let footerLeft = "";
+    export let footerRight: Snippet | undefined = undefined;
+    export let headerActions: Snippet | undefined = undefined;
+    export let headerTitle = "";
 </script>
 
 <section class="block">
     <div class="header">
         <span>{headerTitle}</span>
-        <span><slot name="headerActions" /></span>
+        <span>
+            {#if headerActions}
+                {@render headerActions()}
+            {/if}
+        </span>
     </div>
 
     <div class="body">
-        <slot />
+        {#if children}
+            {@render children()}
+        {/if}
     </div>
 
     {#if footerLeft}
         <div class="footer">
             <span>{footerLeft}</span>
-            <span><slot name="footerRight" /></span>
+            <span>
+                {#if footerRight}
+                    {@render footerRight()}
+                {/if}
+            </span>
         </div>
     {/if}
 </section>

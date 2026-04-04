@@ -28,7 +28,7 @@
     class="filled-button"
     class:running={isRunning}
     disabled={!tap || isRunning}
-    on:click={handleClick}
+    onclick={handleClick}
     style:background-color={bgColor}
     style:border-radius={borderRadius ? `${borderRadius}px` : undefined}
     style:color={color}

@@ -1,8 +1,12 @@
-<script>
-    export let changed = undefined;
+<script lang="ts">
+    import type { Snippet } from "svelte";
+
+    export let changed: ((value: number) => void) | undefined = undefined;
+    export let left: Snippet | undefined = undefined;
     export let label = "";
     export let max = 100;
     export let min = 0;
+    export let right: Snippet | undefined = undefined;
     export let step = 1;
     export let unit = "";
     export let value = 0;
@@ -11,7 +15,7 @@
 
     $: currentValue = value ?? min;
 
-    const handleInput = (event) => {
+    const handleInput = (event: Event & { currentTarget: EventTarget & HTMLInputElement }) => {
         const nextValue = event.currentTarget.valueAsNumber;
         currentValue = nextValue;
         changed?.(nextValue);
@@ -25,9 +29,13 @@
     </div>
 
     <div>
-        <slot name="left" />
-        <input max={max} min={min} on:input={handleInput} readOnly={!changed} step={step} type="range" value={currentValue} />
-        <slot name="right" />
+        {#if left}
+            {@render left()}
+        {/if}
+        <input max={max} min={min} oninput={handleInput} readOnly={!changed} step={step} type="range" value={currentValue} />
+        {#if right}
+            {@render right()}
+        {/if}
     </div>
 </label>
 

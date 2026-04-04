@@ -11,7 +11,7 @@ test("root and builder packages follow the repository latest policy", () => {
     const rootPackage = readJson(new URL("../package.json", import.meta.url));
     const builderPackage = readJson(new URL("../builder/package.json", import.meta.url));
 
-    expect(rootPackage.devDependencies).toMatchObject({
+    expect(rootPackage.devDependencies).toEqual({
         "@types/bun": "latest",
         "@types/node": "latest",
         jsdom: "latest",
@@ -25,7 +25,7 @@ test("root and builder packages follow the repository latest policy", () => {
         typescript: "latest",
     });
 
-    expect(builderPackage.devDependencies).toMatchObject({
+    expect(builderPackage.devDependencies).toEqual({
         "@types/bun": "latest",
         "@types/node": "latest",
         esbuild: "latest",

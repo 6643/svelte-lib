@@ -70,3 +70,32 @@ test("tests use Svelte's public client API instead of internal source paths", ()
         }
     }
 });
+
+test("targeted public components no longer use slot markup or on: directives", () => {
+    const files = [
+        "ui/box/Block.svelte",
+        "ui/input/StringInput.svelte",
+        "ui/input/RangeInput.svelte",
+        "ui/modal/FilledModal.svelte",
+        "ui/swiper/Swiper.svelte",
+        "ui/button/FilledButton.svelte",
+        "ui/button/IconButton.svelte",
+        "ui/button/TextButton.svelte",
+        "ui/plyr/Plyr.svelte",
+    ];
+
+    for (const file of files) {
+        const source = readRepoFile(file);
+
+        expect(source.includes("<slot")).toBe(false);
+        expect(/\son:[a-z]/.test(source)).toBe(false);
+    }
+});
+
+test("builder README documents the intentional Svelte internal runtime boundary", () => {
+    const readme = readRepoFile("builder/README.md");
+
+    expect(readme.includes("svelte/internal/client")).toBe(true);
+    expect(readme.includes("upgrade-sensitive boundary")).toBe(true);
+    expect(readme.includes("bun run build")).toBe(true);
+});

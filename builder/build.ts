@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { deserialize } from "node:v8";
+import type { BuildConfig, BunPlugin } from "bun";
 import { compile } from "svelte/compiler";
 import { createBootstrapSource, createImportPath } from "./bootstrap";
 import { copyConfiguredAssets, resolveConfiguredAssetsDir } from "./assets";
@@ -951,7 +952,7 @@ const compileSvelteModule = async (path: string): Promise<Result<{ css: string; 
         );
 };
 
-const createProductionEsmEnvPlugin = (): Bun.BunPlugin => ({
+const createProductionEsmEnvPlugin = (): BunPlugin => ({
     name: "production-esm-env-plugin",
     target: "browser",
     setup: (builder) => {
@@ -1048,7 +1049,7 @@ export const validateSvelteBrowserImportAliases = async (rootDir: string): Promi
     return ok(undefined);
 };
 
-const createSvelteRuntimeAliasPlugin = (rootDir: string): Bun.BunPlugin => ({
+const createSvelteRuntimeAliasPlugin = (rootDir: string): BunPlugin => ({
     name: "svelte-runtime-alias-plugin",
     target: "browser",
     setup: (builder) => {
@@ -1063,7 +1064,7 @@ const createSvelteRuntimeAliasPlugin = (rootDir: string): Bun.BunPlugin => ({
     },
 });
 
-export const createSveltePlugin = (cssByPath: Map<string, string>): Bun.BunPlugin => ({
+export const createSveltePlugin = (cssByPath: Map<string, string>): BunPlugin => ({
     name: "svelte-prod-plugin",
     target: "browser",
     setup: (builder) => {
@@ -1087,7 +1088,7 @@ export const createSveltePlugin = (cssByPath: Map<string, string>): Bun.BunPlugi
 
 export const defineSvelteConfig = (config: BuildSvelteOptions): BuildSvelteOptions => config;
 
-const resolveSourcemapMode = (sourcemap: boolean | undefined): Bun.BuildConfig["sourcemap"] => (sourcemap ? "inline" : "none");
+const resolveSourcemapMode = (sourcemap: boolean | undefined): BuildConfig["sourcemap"] => (sourcemap ? "inline" : "none");
 
 const loadModuleConfigFile = async (configPath: string): Promise<Result<unknown>> => {
     const outputPath = join("/tmp", `svelte-lib-config-${randomUUID()}.bin`);
@@ -1283,7 +1284,7 @@ export const buildSvelte = async (options: BuildSvelteOptions = {}): Promise<Res
                 createSvelteRuntimeAliasPlugin(rootDir),
                 stripSvelteDiagnostics ? createProductionEsmEnvPlugin() : null,
                 createSveltePlugin(cssByPath),
-            ].filter((plugin): plugin is Bun.BunPlugin => plugin !== null),
+            ].filter((plugin): plugin is BunPlugin => plugin !== null),
             sourcemap: resolveSourcemapMode(options.sourcemap),
             splitting: true,
             target: "browser",

@@ -1,21 +1,24 @@
-<script>
+<script lang="ts">
+    import type { Snippet } from "svelte";
+
     export let active = false;
     export let className = "";
-    export let onClose = undefined;
+    export let children: Snippet | undefined = undefined;
+    export let onClose: (() => void) | undefined = undefined;
 
-    let dialogEl = undefined;
+    let dialogEl: HTMLDialogElement | undefined = undefined;
 
     const closeModal = () => {
         active = false;
         onClose?.();
     };
 
-    const handleBackdropClick = (event) => {
+    const handleBackdropClick = (event: MouseEvent & { currentTarget: EventTarget & HTMLDialogElement }) => {
         if (event.target !== event.currentTarget) return;
         closeModal();
     };
 
-    const handleCancel = (event) => {
+    const handleCancel = (event: Event) => {
         event.preventDefault();
         closeModal();
     };
@@ -27,8 +30,10 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-<dialog bind:this={dialogEl} class={`filled-modal ${className}`.trim()} on:cancel={handleCancel} on:click={handleBackdropClick}>
-    <slot />
+<dialog bind:this={dialogEl} class={`filled-modal ${className}`.trim()} oncancel={handleCancel} onclick={handleBackdropClick}>
+    {#if children}
+        {@render children()}
+    {/if}
 </dialog>
 
 <style>

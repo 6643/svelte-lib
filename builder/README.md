@@ -148,6 +148,21 @@ src/lazy/ButtonDemo.svelte   2026-03-18 11:11:11  4.1 KiB  1.9 KiB
 - dev 只暴露受控 app 源码树、`/_node_modules/*` 和 `/assets/*`, 并对路径穿越与符号链接逃逸做了边界校验, 但这不等于适合承载不可信访问流量
 - 若要部署到生产环境, 建议在反向代理或静态托管层补充安全响应头, 至少包括 `Content-Security-Policy`、`X-Content-Type-Options: nosniff` 和合适的 `Referrer-Policy`
 
+## upgrade-sensitive boundary
+
+`svelte-builder` 仍有一处刻意保留的升级敏感边界:
+
+- HMR 客户端依赖 `svelte/internal/client`
+- dev/runtime alias 依赖已安装 `svelte` 包里的 browser runtime entry files
+
+这不是通用 public API 保证, 而是当前构建器行为所需的受控兼容边界。升级 Svelte 后, 应至少重新执行:
+
+```bash
+bun test
+bun run typecheck
+cd builder && bun run build
+```
+
 安装依赖:
 
 ```bash
