@@ -134,6 +134,56 @@ Target outcomes:
 - slot-based public component composition is migrated to snippet-based composition where the component API is explicitly public-facing
 - migration docs and README examples show the new usage first
 
+Event attribute target syntax for this repository:
+
+```svelte
+<button onclick={handleClick}>Save</button>
+<input oninput={handleInput} />
+<dialog oncancel={handleCancel} onclick={handleBackdropClick} />
+```
+
+For the targeted public components, success means the old `on:` directive form is removed from the implementation files listed in this phase unless a specific file is explicitly carved out during implementation for compatibility reasons.
+
+Snippet composition target semantics for this repository:
+
+```svelte
+<Block headerTitle="Title" footerLeft="Left">
+    {#snippet headerActions()}
+        <div>Actions</div>
+    {/snippet}
+
+    {#snippet children()}
+        <div>Body</div>
+    {/snippet}
+
+    {#snippet footerRight()}
+        <div>More</div>
+    {/snippet}
+</Block>
+```
+
+```svelte
+<StringInput>
+    {#snippet left()}
+        <Icon />
+    {/snippet}
+
+    {#snippet right()}
+        <Button />
+    {/snippet}
+</StringInput>
+```
+
+The migration must preserve placement semantics:
+
+- `Block.headerActions` still renders in the header action area
+- `Block.children` still renders in the body area
+- `Block.footerRight` still renders in the footer trailing area
+- `StringInput.left` and `RangeInput.left` still render before the input control
+- `StringInput.right` and `RangeInput.right` still render after the input control
+- `FilledModal.children` still renders inside the dialog body
+- `Swiper.children` still renders as the slide content inside the `swiper-container`
+
 Likely files:
 
 - [`ui/box/Block.svelte`](/._/svelte-lib/ui/box/Block.svelte)
@@ -197,6 +247,12 @@ Public examples and public components should lead with current Svelte 5 usage. T
 - snippet-based child composition replacing named/default slots for the targeted public components
 
 Where the migration is user-visible, docs and migration notes must be updated in the same change set.
+
+Verification for this phase should include:
+
+- targeted component tests still pass after migration
+- repository docs show the new syntax in examples
+- the targeted implementation files no longer contain legacy slot markup or `on:` syntax unless an implementation note explicitly documents a justified exception
 
 ### Builder Internal Coupling
 
