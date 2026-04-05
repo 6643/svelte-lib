@@ -3,3 +3,8 @@ node_modules
 bun.lock
 .worktrees
 .bun-svelte-cache
+
+# demo app
+demo/node_modules/
+demo/bun.lock
+demo/dist/

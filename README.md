@@ -24,6 +24,14 @@ bun add /._/svelte-lib
 bun install
 ```
 
+## Demo
+
+仓库顶层 `demo/` 是一个完整的对外样例 app，用来演示 `svelte-lib/ui`、`svelte-lib/use`、`svelte-lib/route` 和 `svelte-lib/builder` 的组合用法。
+
+它不是额外的包导出路径，不能通过 `svelte-lib/demo` 导入。
+
+样例工程自己的安装、运行、构建与类型检查说明见 [`demo/README.md`](./demo/README.md)。
+
 ## 导入
 
 ```ts
@@ -35,7 +43,16 @@ import { runConfiguredBuild } from "svelte-lib/builder";
 
 ## Svelte 5 用法
 
-组合型 UI 组件现在默认按 snippet prop API 使用：
+组合型 UI 组件现在默认按 snippet prop API 使用，组件内部统一按 runes-first 风格维护：
+
+- `$props`
+- `$state`
+- `$derived`
+- `$effect`
+
+已维护的 UI 组件不再保留 `export let` 和 `$:` 这类旧语法。
+
+示例：
 
 ```svelte
 <script lang="ts">
@@ -65,27 +82,22 @@ import { runConfiguredBuild } from "svelte-lib/builder";
 
 组件内部事件处理也统一使用当前 Svelte 5 推荐的事件属性写法，例如 `onclick={handleClick}`、`oninput={handleInput}`。
 
-## CLI
+## 命令行
 
-`svelte-lib` 暴露了 `svelte-builder` 这个 bin，但是否自动出现在 `.bin/` 取决于消费项目的安装方式。
+`svelte-lib` 现在暴露两个独立可执行入口：`svelte-build` 和 `svelte-dev`。它们是否自动出现在 `.bin/` 取决于消费项目的安装方式。
 
-在当前本地仓库开发流里，最稳妥的调用方式是直接执行 builder CLI：
-
-```bash
-bun /._/svelte-lib/builder/cli.ts build
-bun /._/svelte-lib/builder/cli.ts dev
-```
-
-如果你在当前源码仓库里调试 `builder/` 本身，统一通过根 `package.json` 调用：
+在真实 builder 项目里，最稳妥的调用方式是直接执行构建器命令行入口：
 
 ```bash
-bun run builder:build
-bun run builder:dev
+bun /._/svelte-lib/builder/build.ts
+bun /._/svelte-lib/builder/dev.ts
 ```
+
+当前源码仓库本身不是一个 builder app，根目录没有 `builder.ts`，因此不再提供 `builder:build` / `builder:dev` 根脚本。
 
 如果你的包管理器已经正确把 bin 链接到项目里，也可以直接使用：
 
 ```bash
-svelte-builder build
-svelte-builder dev
+svelte-build
+svelte-dev
 ```
