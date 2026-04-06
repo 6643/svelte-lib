@@ -4,19 +4,18 @@
     "module": "./_.ts",
     "exports": {
         ".": "./_.ts",
-        "./ui": "./ui/_.ts",
-        "./use": "./use/_.ts",
-        "./route": "./route/_.ts",
-        "./builder": "./builder/_.ts",
+        "./ui": "./src/ui/_.ts",
+        "./use": "./src/use/_.ts",
+        "./route": "./src/route/_.ts",
+        "./builder": "./src/builder/_.ts",
         "./package.json": "./package.json"
     },
     "bin": {
-        "svelte-builder": "./builder/cli.ts"
+        "svelte-build": "./src/builder/build.ts",
+        "svelte-dev": "./src/builder/dev.ts"
     },
     "type": "module",
     "scripts": {
-        "builder:build": "cd builder && bun run build.ts build",
-        "builder:dev": "cd builder && bun run build.ts dev",
         "test": "bun test --conditions=browser",
         "typecheck": "svelte-check --tsconfig ./tsconfig.json"
     },

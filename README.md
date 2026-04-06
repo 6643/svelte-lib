@@ -10,10 +10,10 @@
 
 其中：
 
-- `ui/` 放可复用 Svelte 组件与图标
-- `use/` 放 hooks 与轻量工具
-- `route/` 放路由实现，对外通过 `svelte-lib/route` 暴露
-- `builder/` 放构建能力，对外通过 `svelte-lib/builder` 暴露
+- `src/ui/` 放可复用 Svelte 组件与图标
+- `src/use/` 放 hooks 与轻量工具
+- `src/route/` 放路由实现，对外通过 `svelte-lib/route` 暴露
+- `src/builder/` 放构建能力，对外通过 `svelte-lib/builder` 暴露
 
 ## 安装
 
@@ -89,8 +89,8 @@ import { runConfiguredBuild } from "svelte-lib/builder";
 在真实 builder 项目里，最稳妥的调用方式是直接执行构建器命令行入口：
 
 ```bash
-bun /._/svelte-lib/builder/build.ts
-bun /._/svelte-lib/builder/dev.ts
+bun /._/svelte-lib/src/builder/build.ts
+bun /._/svelte-lib/src/builder/dev.ts
 ```
 
 当前源码仓库本身不是一个 builder app，根目录没有 `builder.ts`，因此不再提供 `builder:build` / `builder:dev` 根脚本。

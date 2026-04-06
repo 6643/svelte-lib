@@ -4,7 +4,13 @@
 
 - `devDependencies` 使用 `latest`
 - `peerDependencies` 也使用 `latest`
-- UI 组件默认按当前 Svelte 5 写法维护
+- UI 组件默认按当前 Svelte 5 runes-first 写法维护
+
+当前维护中的 UI 组件内部基线为：
+
+- 使用 `$props` / `$state` / `$derived` / `$effect`
+- 不再保留 `export let`
+- 不再保留 `$:`
 
 这意味着：
 
@@ -24,12 +30,34 @@ bun run typecheck
 如果你在真实项目里消费 `svelte-lib/builder`, 还应额外执行：
 
 ```bash
-svelte-builder build
+svelte-build
 ```
 
 ## Breaking Changes
 
-### 1. `route` 不再导出 `lazyRoute`
+### 1. builder CLI 从 `svelte-builder` 拆分为 `svelte-build` / `svelte-dev`
+
+旧写法：
+
+```bash
+svelte-builder build
+svelte-builder dev
+```
+
+新写法：
+
+```bash
+svelte-build
+svelte-dev
+```
+
+说明：
+
+- `svelte-builder build` 不再可用
+- `svelte-builder dev` 不再可用
+- 仓库根目录也不再提供 `builder:build` / `builder:dev` 脚本，因为根仓库本身不是 builder app
+
+### 2. `route` 不再导出 `lazyRoute`
 
 旧写法：
 
@@ -51,7 +79,7 @@ svelte-builder build
 <Route path="/settings" component={() => import("./Settings.svelte")} />
 ```
 
-### 2. 多个 UI 组件从 slot API 收敛到 snippet prop API
+### 3. 多个 UI 组件从 slot API 收敛到 snippet prop API
 
 受影响组件：
 
@@ -203,4 +231,4 @@ svelte-builder build
 3. 再把内部 `on:` 事件指令切到事件属性
 4. 跑 `bun test`
 5. 跑 `bun run typecheck`
-6. 如使用 builder，再在真实项目里跑一次 `svelte-builder build`
+6. 如使用 builder，再在真实项目里跑一次 `svelte-build`

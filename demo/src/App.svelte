@@ -10,6 +10,7 @@
     const { theme, toggleTheme } = useTheme();
 
     const openHome = () => routePush("/");
+    const openLazy = () => routePush("/lazy?name=Grace%20Hopper");
     const openProfile = () => routePush("/profile?name=Ada%20Lovelace");
     const openMissing = () => routePush("/missing");
 </script>
@@ -37,6 +38,7 @@
     <Block headerTitle="Sample Navigation" footerLeft="Top-level demo only">
         {#snippet headerActions()}
             <FilledButton icon={icon_house} text="Home" tap={openHome} />
+            <FilledButton text="Lazy" tap={openLazy} />
             <FilledButton icon={icon_save} text="Profile" tap={openProfile} />
             <FilledButton text="404" tap={openMissing} />
         {/snippet}
@@ -44,6 +46,7 @@
         {#snippet children()}
             <div class="route-stage">
                 <Route path="/" component={Home} />
+                <Route path="/lazy" component={() => import("./routes/LazyProfile.svelte")} $name={String} />
                 <Route path="/profile" component={Profile} $name={String} />
                 <Route path="*" component={NotFound} />
             </div>

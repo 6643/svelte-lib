@@ -1,10 +1,18 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dir, "..");
 
 const readRepoFile = (path: string): string => readFileSync(resolve(repoRoot, path), "utf8");
+const listRepoFiles = (directory: string): string[] => {
+    const root = resolve(repoRoot, directory);
+    const entries = readdirSync(root, { recursive: true, withFileTypes: true });
+
+    return entries
+        .filter((entry) => entry.isFile())
+        .map((entry) => resolve(directory, entry.parentPath.slice(root.length + 1), entry.name).replaceAll("\\", "/"));
+};
 
 test("tsconfig uses Bun's current type entry", () => {
     const tsconfig = JSON.parse(readRepoFile("tsconfig.json")) as {
@@ -16,21 +24,25 @@ test("tsconfig uses Bun's current type entry", () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["bun", "node", "svelte"]);
 });
 
-test("test helper re-exports Svelte's public client api", async () => {
-    const helper = await import("./helpers.svelte-client.ts");
+test("route and ui test helpers re-export Svelte's public client api", async () => {
+    const routeHelper = await import("../src/route/tests/helpers.svelte-client.ts");
+    const uiHelper = await import("../src/ui/tests/helpers.svelte-client.ts");
 
-    expect(typeof helper.flushSync).toBe("function");
-    expect(typeof helper.svelteMount).toBe("function");
-    expect(typeof helper.svelteUnmount).toBe("function");
+    expect(typeof routeHelper.flushSync).toBe("function");
+    expect(typeof routeHelper.svelteMount).toBe("function");
+    expect(typeof routeHelper.svelteUnmount).toBe("function");
+    expect(typeof uiHelper.flushSync).toBe("function");
+    expect(typeof uiHelper.svelteMount).toBe("function");
+    expect(typeof uiHelper.svelteUnmount).toBe("function");
 });
 
 test("builder Bun types use module imports instead of legacy namespace references", () => {
     const files = [
-        "builder/finalize-css.ts",
-        "builder/finalize-js.ts",
-        "builder/build.ts",
-        "builder/dev.ts",
-        "builder/tests/finalize-js.test.ts",
+        "src/builder/finalize-css.ts",
+        "src/builder/finalize-js.ts",
+        "src/builder/build.ts",
+        "src/builder/dev.ts",
+        "src/builder/tests/finalize-js.test.ts",
     ];
     const legacyPatterns = [
         /\bBun\.BuildArtifact\b/,
@@ -52,9 +64,9 @@ test("builder Bun types use module imports instead of legacy namespace reference
 
 test("tests use Svelte's public client API instead of internal source paths", () => {
     const files = [
-        "tests/route.route-component.test.ts",
-        "tests/ui.Swiper.test.ts",
-        "tests/ui.SortListBox.test.ts",
+        "src/route/tests/route-component.test.ts",
+        "src/ui/tests/Swiper.test.ts",
+        "src/ui/tests/SortListBox.test.ts",
     ];
     const forbiddenPatterns = [
         /node_modules\/svelte\/src\/index-client\.js/,
@@ -71,8 +83,40 @@ test("tests use Svelte's public client API instead of internal source paths", ()
     }
 });
 
-test("ui and route tests are flattened into the root tests directory", () => {
+test("ui and route tests stay with their owning projects", () => {
     const expectedFiles = [
+        "src/ui/tests/helpers.svelte-client.ts",
+        "src/ui/tests/compile-svelte.ts",
+        "src/ui/tests/snippet-components.test.ts",
+        "src/ui/tests/fixtures/BlockHarness.svelte",
+        "src/ui/tests/fixtures/FilledModalHarness.svelte",
+        "src/ui/tests/fixtures/RangeInputHarness.svelte",
+        "src/ui/tests/fixtures/StringInputHarness.svelte",
+        "src/ui/tests/fixtures/SortListBoxHarness.svelte",
+        "src/ui/tests/fixtures/SwiperHarness.svelte",
+        "src/ui/tests/Swiper.test.ts",
+        "src/ui/tests/Swiper.bundle-loader.test.ts",
+        "src/ui/tests/Swiper.video-autoplay.test.ts",
+        "src/ui/tests/SortListBox.test.ts",
+        "src/ui/tests/SortListBox.drag-layout.test.ts",
+        "src/ui/tests/SortListBox.reorder.test.ts",
+        "src/route/tests/helpers.svelte-client.ts",
+        "src/route/tests/compile-svelte.ts",
+        "src/route/tests/public-api.test.ts",
+        "src/route/tests/query-navigation-history.test.ts",
+        "src/route/tests/route-component.test.ts",
+        "src/route/tests/router-runtime.test.ts",
+        "src/route/tests/fixtures/LazyTarget.svelte",
+        "src/route/tests/fixtures/MutableRouteDecoderHarness.svelte",
+        "src/route/tests/fixtures/MutableRouteHarness.svelte",
+        "src/route/tests/fixtures/MutableRoutePathHarness.svelte",
+        "src/route/tests/fixtures/NotFound.svelte",
+        "src/route/tests/fixtures/SyncA.svelte",
+        "src/route/tests/fixtures/SyncB.svelte",
+        "src/route/tests/fixtures/lifecycle.ts",
+    ];
+
+    const removedPaths = [
         "tests/helpers.svelte-client.ts",
         "tests/ui.snippet-components.test.ts",
         "tests/ui.fixture.BlockHarness.svelte",
@@ -102,36 +146,6 @@ test("ui and route tests are flattened into the root tests directory", () => {
         "tests/route.fixture.lifecycle.ts",
     ];
 
-    const removedPaths = [
-        "tests/helpers/svelte-client.ts",
-        "ui/tests/snippet-components.test.ts",
-        "ui/tests/fixtures/BlockHarness.svelte",
-        "ui/tests/fixtures/FilledModalHarness.svelte",
-        "ui/tests/fixtures/RangeInputHarness.svelte",
-        "ui/tests/fixtures/StringInputHarness.svelte",
-        "ui/sort-list-box/tests/fixtures/SortListBoxHarness.svelte",
-        "ui/tests/fixtures/SwiperHarness.svelte",
-        "ui/swiper/Swiper.test.ts",
-        "ui/swiper/swiper-bundle-loader.test.ts",
-        "ui/swiper/video-autoplay.test.ts",
-        "ui/sort-list-box/SortListBox.test.ts",
-        "ui/sort-list-box/drag-layout.test.ts",
-        "ui/sort-list-box/reorder.test.ts",
-        "route/tests/public-api.test.ts",
-        "route/tests/query-navigation-history.test.ts",
-        "route/tests/route-component.test.ts",
-        "route/tests/router-runtime.test.ts",
-        "route/tests/helpers/compile-svelte.ts",
-        "route/tests/fixtures/LazyTarget.svelte",
-        "route/tests/fixtures/MutableRouteDecoderHarness.svelte",
-        "route/tests/fixtures/MutableRouteHarness.svelte",
-        "route/tests/fixtures/MutableRoutePathHarness.svelte",
-        "route/tests/fixtures/NotFound.svelte",
-        "route/tests/fixtures/SyncA.svelte",
-        "route/tests/fixtures/SyncB.svelte",
-        "route/tests/fixtures/lifecycle.ts",
-    ];
-
     for (const path of expectedFiles) {
         expect(existsSync(resolve(repoRoot, path))).toBe(true);
     }
@@ -143,16 +157,16 @@ test("ui and route tests are flattened into the root tests directory", () => {
 
 test("targeted public components no longer use slot markup or on: directives", () => {
     const files = [
-        "ui/Button.filled.svelte",
-        "ui/Button.icon.svelte",
-        "ui/Button.text.svelte",
-        "ui/Block.svelte",
-        "ui/Input.range.svelte",
-        "ui/Input.string.svelte",
-        "ui/Modal.filled.svelte",
-        "ui/Plyr.svelte",
-        "ui/SortListBox.svelte",
-        "ui/Swiper.svelte",
+        "src/ui/Button.filled.svelte",
+        "src/ui/Button.icon.svelte",
+        "src/ui/Button.text.svelte",
+        "src/ui/Block.svelte",
+        "src/ui/Input.range.svelte",
+        "src/ui/Input.string.svelte",
+        "src/ui/Modal.filled.svelte",
+        "src/ui/Plyr.svelte",
+        "src/ui/SortListBox.svelte",
+        "src/ui/Swiper.svelte",
     ];
 
     for (const file of files) {
@@ -163,39 +177,83 @@ test("targeted public components no longer use slot markup or on: directives", (
     }
 });
 
+test("ui modernization removes export let and reactive label syntax", () => {
+    const files = [
+        "src/ui/Block.svelte",
+        "src/ui/Button.filled.svelte",
+        "src/ui/Button.icon.svelte",
+        "src/ui/Button.text.svelte",
+        "src/ui/Input.range.svelte",
+        "src/ui/Input.string.svelte",
+        "src/ui/Modal.filled.svelte",
+        "src/ui/Plyr.svelte",
+        "src/ui/Swiper.svelte",
+    ];
+    const forbiddenPatterns = [/\bexport let\b/, /\n\s*\$:\s/];
+
+    for (const file of files) {
+        const source = readRepoFile(file);
+
+        for (const pattern of forbiddenPatterns) {
+            expect(pattern.test(source)).toBe(false);
+        }
+    }
+});
+
+test("route modernization removes legacy component syntax", () => {
+    const files = ["src/route/Route.svelte"];
+    const forbiddenPatterns = [/\bexport let\b/, /\n\s*\$:\s/, /\bonMount\b/];
+
+    for (const file of files) {
+        const source = readRepoFile(file);
+
+        for (const pattern of forbiddenPatterns) {
+            expect(pattern.test(source)).toBe(false);
+        }
+    }
+});
+
+test("builder modernization stays in runtime/support-code scope because builder owns no Svelte components", () => {
+    // Builder modernization in this repository targets runtime and support code.
+    // There are no maintained builder-owned .svelte files left in scope to apply a component-syntax cleanup against.
+    const builderSvelteFiles = listRepoFiles("src/builder").filter((path) => path.endsWith(".svelte"));
+
+    expect(builderSvelteFiles).toEqual([]);
+});
+
 test("ui runtime files are flattened and button variants use the Button.* naming scheme", () => {
     const expectedFiles = [
-        "ui/Block.svelte",
-        "ui/Button.filled.svelte",
-        "ui/Button.icon.svelte",
-        "ui/Button.text.svelte",
-        "ui/Input.range.svelte",
-        "ui/Input.string.svelte",
-        "ui/Modal.filled.svelte",
-        "ui/Plyr.svelte",
-        "ui/SortListBox.svelte",
-        "ui/SortListBox.drag-layout.ts",
-        "ui/SortListBox.reorder.ts",
-        "ui/Swiper.svelte",
-        "ui/Swiper.bundle-loader.ts",
-        "ui/Swiper.video-autoplay.ts",
+        "src/ui/Block.svelte",
+        "src/ui/Button.filled.svelte",
+        "src/ui/Button.icon.svelte",
+        "src/ui/Button.text.svelte",
+        "src/ui/Input.range.svelte",
+        "src/ui/Input.string.svelte",
+        "src/ui/Modal.filled.svelte",
+        "src/ui/Plyr.svelte",
+        "src/ui/SortListBox.svelte",
+        "src/ui/SortListBox.drag-layout.ts",
+        "src/ui/SortListBox.reorder.ts",
+        "src/ui/Swiper.svelte",
+        "src/ui/Swiper.bundle-loader.ts",
+        "src/ui/Swiper.video-autoplay.ts",
     ];
 
     const removedPaths = [
-        "ui/box/Block.svelte",
-        "ui/button/FilledButton.svelte",
-        "ui/button/IconButton.svelte",
-        "ui/button/TextButton.svelte",
-        "ui/input/RangeInput.svelte",
-        "ui/input/StringInput.svelte",
-        "ui/modal/FilledModal.svelte",
-        "ui/plyr/Plyr.svelte",
-        "ui/sort-list-box/SortListBox.svelte",
-        "ui/sort-list-box/drag-layout.ts",
-        "ui/sort-list-box/reorder.ts",
-        "ui/swiper/Swiper.svelte",
-        "ui/swiper/swiper-bundle-loader.ts",
-        "ui/swiper/video-autoplay.ts",
+        "src/ui/box/Block.svelte",
+        "src/ui/button/FilledButton.svelte",
+        "src/ui/button/IconButton.svelte",
+        "src/ui/button/TextButton.svelte",
+        "src/ui/input/RangeInput.svelte",
+        "src/ui/input/StringInput.svelte",
+        "src/ui/modal/FilledModal.svelte",
+        "src/ui/plyr/Plyr.svelte",
+        "src/ui/sort-list-box/SortListBox.svelte",
+        "src/ui/sort-list-box/drag-layout.ts",
+        "src/ui/sort-list-box/reorder.ts",
+        "src/ui/swiper/Swiper.svelte",
+        "src/ui/swiper/swiper-bundle-loader.ts",
+        "src/ui/swiper/video-autoplay.ts",
     ];
 
     for (const path of expectedFiles) {
@@ -208,18 +266,54 @@ test("ui runtime files are flattened and button variants use the Button.* naming
 });
 
 test("builder README documents the intentional Svelte internal runtime boundary", () => {
-    const readme = readRepoFile("builder/README.md");
+    const readme = readRepoFile("src/builder/README.md");
 
     expect(readme.includes("svelte/internal/client")).toBe(true);
-    expect(readme.includes("upgrade-sensitive boundary")).toBe(true);
+    expect(readme.includes("升级敏感边界")).toBe(true);
     expect(readme.includes("bun run build")).toBe(true);
+    expect(readme.includes("package.json#imports")).toBe(true);
+});
+
+test("builder docs use the published CLI command names consistently", () => {
+    const builderReadme = readRepoFile("src/builder/README.md");
+    const migration = readRepoFile("docs/migrations/2026-04-latest-svelte5-migration.md");
+
+    expect(builderReadme.includes("svelte-build")).toBe(true);
+    expect(builderReadme.includes("svelte-dev")).toBe(true);
+    expect(builderReadme.includes("svelte-builder-build")).toBe(false);
+    expect(builderReadme.includes("svelte-builder-dev")).toBe(false);
+
+    expect(migration.includes("svelte-build")).toBe(true);
+    expect(migration.includes("svelte-builder-build")).toBe(false);
+});
+
+test("migration guide documents the builder CLI rename as a breaking change", () => {
+    const migration = readRepoFile("docs/migrations/2026-04-latest-svelte5-migration.md");
+
+    expect(migration.includes("svelte-builder build")).toBe(true);
+    expect(migration.includes("svelte-builder dev")).toBe(true);
+    expect(migration.includes("svelte-build")).toBe(true);
+    expect(migration.includes("svelte-dev")).toBe(true);
+});
+
+test("builder README points readers at the supported top-level demo app", () => {
+    const readme = readRepoFile("src/builder/README.md");
+
+    expect(readme.includes("顶层 `demo/`")).toBe(true);
+});
+
+test("builder dev runtime logs use the published dev command name", () => {
+    const devSource = readRepoFile("src/builder/dev.ts");
+
+    expect(devSource.includes("[svelte-builder]")).toBe(false);
+    expect(devSource.includes("[svelte-dev]")).toBe(true);
 });
 
 test("builder source config uses ts and local counters use arrow functions", () => {
-    expect(existsSync(resolve(repoRoot, "builder/svelte.config.ts"))).toBe(true);
-    expect(existsSync(resolve(repoRoot, "builder/svelte.config.js"))).toBe(false);
-    expect(existsSync(resolve(repoRoot, "builder/demo.Counter.svelte"))).toBe(false);
-    expect(existsSync(resolve(repoRoot, "builder/demo.Counter2.svelte"))).toBe(false);
-    expect(existsSync(resolve(repoRoot, "builder/src/lib/Counter.svelte"))).toBe(false);
-    expect(existsSync(resolve(repoRoot, "builder/src/lib/Counter2.svelte"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/builder/svelte.config.ts"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/builder/svelte.config.js"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/builder/demo.Counter.svelte"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/builder/demo.Counter2.svelte"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/builder/src/lib/Counter.svelte"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/builder/src/lib/Counter2.svelte"))).toBe(false);
 });

@@ -14,14 +14,9 @@
     "include": [
         "*.ts",
         "*.d.ts",
-        "ui/**/*.ts",
-        "ui/**/*.d.ts",
-        "ui/**/*.svelte",
-        "use/**/*.ts",
-        "route/**/*.ts",
-        "route/**/*.d.ts",
-        "route/**/*.svelte",
-        "builder/**/*.ts",
+        "src/**/*.ts",
+        "src/**/*.d.ts",
+        "src/**/*.svelte",
         "tests/**/*.ts"
     ]
 }
