@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import * as lib from "../_.ts";
+import * as lib from "../src/_.ts";
 import * as ui from "../src/ui/_.ts";
 import * as use from "../src/use/_.ts";
 import * as route from "../src/route/_.ts";

@@ -1,9 +1,9 @@
 {
     "name": "svelte-lib",
     "version": "1.0.0",
-    "module": "./_.ts",
+    "module": "./src/_.ts",
     "exports": {
-        ".": "./_.ts",
+        ".": "./src/_.ts",
         "./ui": "./src/ui/_.ts",
         "./use": "./src/use/_.ts",
         "./route": "./src/route/_.ts",
@@ -14,6 +14,7 @@
         "svelte-build": "./src/builder/build.ts",
         "svelte-dev": "./src/builder/dev.ts"
     },
+    "files": ["src", "README.md", "global.d.ts"],
     "type": "module",
     "scripts": {
         "test": "bun test --conditions=browser",

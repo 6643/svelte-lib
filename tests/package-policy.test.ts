@@ -6,6 +6,8 @@ const readJson = (path: URL) =>
         devDependencies?: Record<string, string>;
         bin?: Record<string, string>;
         exports?: Record<string, string>;
+        files?: string[];
+        module?: string;
         name?: string;
         scripts?: Record<string, string>;
         peerDependencies?: Record<string, string>;
@@ -27,8 +29,10 @@ test("root package owns builder dependency policy without pretending to be a bui
         svelte: "latest",
     });
 
+    expect(rootPackage.module).toBe("./src/_.ts");
+
     expect(rootPackage.exports).toEqual({
-        ".": "./_.ts",
+        ".": "./src/_.ts",
         "./ui": "./src/ui/_.ts",
         "./use": "./src/use/_.ts",
         "./route": "./src/route/_.ts",
@@ -40,6 +44,8 @@ test("root package owns builder dependency policy without pretending to be a bui
         "svelte-build": "./src/builder/build.ts",
         "svelte-dev": "./src/builder/dev.ts",
     });
+
+    expect(rootPackage.files).toEqual(["src", "README.md", "global.d.ts"]);
 
     expect(rootPackage.scripts?.["builder:build"]).toBeUndefined();
     expect(rootPackage.scripts?.["builder:dev"]).toBeUndefined();
