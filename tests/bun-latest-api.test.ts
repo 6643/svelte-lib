@@ -1,10 +1,30 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import ts from "typescript";
 
 const repoRoot = resolve(import.meta.dir, "..");
 
 const readRepoFile = (path: string): string => readFileSync(resolve(repoRoot, path), "utf8");
+const readRepoTsconfig = () => {
+    const tsconfigPath = resolve(repoRoot, "tsconfig.json");
+    const configFile = ts.readConfigFile(tsconfigPath, ts.sys.readFile);
+
+    if (configFile.error) {
+        throw new Error(ts.formatDiagnostics([configFile.error], {
+            getCanonicalFileName: (fileName) => fileName,
+            getCurrentDirectory: () => repoRoot,
+            getNewLine: () => "\n",
+        }));
+    }
+
+    return configFile.config as {
+        compilerOptions?: {
+            types?: string[];
+        };
+    };
+};
+
 const listRepoFiles = (directory: string): string[] => {
     const root = resolve(repoRoot, directory);
     const entries = readdirSync(root, { recursive: true, withFileTypes: true });
@@ -15,11 +35,7 @@ const listRepoFiles = (directory: string): string[] => {
 };
 
 test("tsconfig uses Bun's current type entry", () => {
-    const tsconfig = JSON.parse(readRepoFile("tsconfig.json")) as {
-        compilerOptions?: {
-            types?: string[];
-        };
-    };
+    const tsconfig = readRepoTsconfig();
 
     expect(tsconfig.compilerOptions?.types).toEqual(["bun", "node", "svelte"]);
 });
