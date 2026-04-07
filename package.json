@@ -14,7 +14,12 @@
         "svelte-build": "./src/builder/build.ts",
         "svelte-dev": "./src/builder/dev.ts"
     },
-    "files": ["src", "README.md", "global.d.ts"],
+    "files": [
+        "src",
+        "README.md",
+        "global.d.ts"
+    ],
+    "sideEffects": false,
     "type": "module",
     "scripts": {
         "test": "bun test --conditions=browser",

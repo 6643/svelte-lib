@@ -9,6 +9,7 @@ const readJson = (path: URL) =>
         files?: string[];
         module?: string;
         name?: string;
+        sideEffects?: boolean | string[];
         scripts?: Record<string, string>;
         peerDependencies?: Record<string, string>;
     };
@@ -46,6 +47,7 @@ test("root package owns builder dependency policy without pretending to be a bui
     });
 
     expect(rootPackage.files).toEqual(["src", "README.md", "global.d.ts"]);
+    expect(rootPackage.sideEffects).toBe(false);
 
     expect(rootPackage.scripts?.["builder:build"]).toBeUndefined();
     expect(rootPackage.scripts?.["builder:dev"]).toBeUndefined();
