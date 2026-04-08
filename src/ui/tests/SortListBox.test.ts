@@ -75,8 +75,8 @@ test("SortListBox removes drag listeners when unmounted mid-drag", async () => {
     const mounted = svelteMount(SortListBoxHarness, { target });
     flushSync();
 
-    const dragHandle = target.querySelector(".drag-handle");
-    if (!(dragHandle instanceof Element)) {
+    const dragHandle = target.querySelector<HTMLElement>(".drag-handle");
+    if (!dragHandle) {
         throw new Error("Missing drag handle");
     }
 
@@ -114,4 +114,57 @@ test("SortListBox drag handles expose an accessible name", async () => {
     expect(dragHandles.every((handle) => (handle.getAttribute("aria-label") ?? "").trim().length > 0)).toBe(true);
 
     svelteUnmount(mounted);
+});
+
+test("SortListBox clears drag listeners when the pointer is cancelled", async () => {
+    const SortListBoxHarness = await loadCompiledComponent("./fixtures/SortListBoxHarness.svelte", import.meta.url);
+    const target = document.createElement("div");
+    document.body.append(target);
+
+    const activeListeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
+    const originalAddEventListener = document.addEventListener.bind(document);
+    const originalRemoveEventListener = document.removeEventListener.bind(document);
+
+    document.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+        const listeners = activeListeners.get(type) ?? new Set<EventListenerOrEventListenerObject>();
+        listeners.add(listener);
+        activeListeners.set(type, listeners);
+        originalAddEventListener(type, listener, options);
+    }) as typeof document.addEventListener;
+
+    document.removeEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) => {
+        activeListeners.get(type)?.delete(listener);
+        originalRemoveEventListener(type, listener, options);
+    }) as typeof document.removeEventListener;
+
+    const mounted = svelteMount(SortListBoxHarness, { target });
+    flushSync();
+
+    const dragHandle = target.querySelector<HTMLElement>(".drag-handle");
+    if (!dragHandle) {
+        throw new Error("Missing drag handle");
+    }
+
+    const pointerDown = new window.Event("pointerdown", { bubbles: true, cancelable: true });
+    Object.defineProperties(pointerDown, {
+        button: { value: 0 },
+        clientY: { value: 10 },
+        isPrimary: { value: true },
+    });
+
+    dragHandle.dispatchEvent(pointerDown);
+    expect(activeListeners.get("pointermove")?.size ?? 0).toBe(1);
+    expect(activeListeners.get("pointerup")?.size ?? 0).toBe(1);
+    expect(activeListeners.get("pointercancel")?.size ?? 0).toBe(1);
+
+    document.dispatchEvent(new window.Event("pointercancel"));
+    flushSync();
+
+    expect(activeListeners.get("pointermove")?.size ?? 0).toBe(0);
+    expect(activeListeners.get("pointerup")?.size ?? 0).toBe(0);
+    expect(activeListeners.get("pointercancel")?.size ?? 0).toBe(0);
+
+    svelteUnmount(mounted);
+    document.addEventListener = originalAddEventListener;
+    document.removeEventListener = originalRemoveEventListener;
 });

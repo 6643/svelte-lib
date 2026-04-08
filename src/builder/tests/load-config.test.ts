@@ -108,3 +108,20 @@ test("loadSvelteConfig tolerates builder.ts stdout noise from top-level code", a
 
     expect(result.value.appTitle).toBe("Noisy Builder");
 });
+
+test("loadSvelteConfig accepts mountId values that are valid DOM ids but not CSS identifier tokens", async () => {
+    const rootDir = await createTempProject(`
+        export default {
+            mountId: "app:root"
+        };
+    `);
+
+    const result = await loadSvelteConfig(rootDir);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+        throw new Error(result.error);
+    }
+
+    expect(result.value.mountId).toBe("app:root");
+});

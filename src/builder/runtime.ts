@@ -6,7 +6,7 @@ export type RuntimeMountScope = {
 
 const normalizeMountId = (mountId: string): string => mountId.trim();
 
-const isPlainMountId = (mountId: string): boolean => /^[A-Za-z0-9_-]+$/.test(mountId);
+const isValidMountId = (mountId: string): boolean => !/\s/u.test(mountId) && !mountId.startsWith("#");
 
 // Type-only export for editor/type-checker consumers.
 // Build/dev replace this module with a generated runtime module that embeds the configured mount id.
@@ -24,7 +24,7 @@ export const getMountTarget = (scope: RuntimeMountScope, mountId: string): Runti
 
 export const createRuntimeModuleSource = (mountId: string): string => {
     const normalizedMountId = normalizeMountId(mountId);
-    if (!isPlainMountId(normalizedMountId)) {
+    if (!isValidMountId(normalizedMountId)) {
         throw new Error(`Invalid mount id for runtime module: ${mountId}`);
     }
 

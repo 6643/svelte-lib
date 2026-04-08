@@ -27,10 +27,12 @@ bun install
 ## 导入
 
 ```ts
-import { IconButton } from "svelte-lib/ui";
-import { useTheme } from "svelte-lib/use";
+import { IconButton, setDarkTheme, setLightTheme } from "svelte-lib/ui";
 import { Route } from "svelte-lib/route";
 import { runConfiguredBuild } from "svelte-lib/builder";
+
+setDarkTheme();
+setLightTheme();
 ```
 
 ## Svelte 5 用法

@@ -141,6 +141,32 @@ import {
 - `FilledModal`
 - `Swiper`
 
+### 7. 主题切换从 `useTheme` 收缩为 `ui` 下的显式主题函数
+
+旧写法：
+
+```ts
+import { useTheme } from "svelte-lib/use";
+
+const { theme, toggleTheme } = useTheme();
+```
+
+新写法：
+
+```ts
+import { setDarkTheme, setLightTheme } from "svelte-lib/ui";
+
+setDarkTheme();
+setLightTheme();
+```
+
+说明：
+
+- `useTheme` 已移除
+- 主题切换现在位于 `svelte-lib/ui`
+- 主题切换通过写入根节点 CSS 变量实现
+- 当前不内置持久化、系统主题跟随或共享 theme store
+
 #### `Block`
 
 旧写法：

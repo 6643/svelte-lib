@@ -11,7 +11,10 @@ test("svelte-lib exports the expected public entry points", () => {
     expect("IconButton" in lib).toBe(true);
     expect("useDebounce" in lib).toBe(true);
     expect("Swiper" in ui).toBe(true);
-    expect("useTheme" in use).toBe(true);
+    expect("setTheme" in ui).toBe(true);
+    expect("setLightTheme" in ui).toBe(true);
+    expect("setDarkTheme" in ui).toBe(true);
+    expect("useTheme" in use).toBe(false);
     expect("Route" in route).toBe(true);
     expect("runConfiguredBuild" in builder).toBe(true);
 });

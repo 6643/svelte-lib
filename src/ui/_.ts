@@ -10,3 +10,4 @@ export { default as Plyr } from "./Plyr.svelte";
 export { default as SortListBox } from "./SortListBox.svelte";
 export { default as Swiper } from "./Swiper.svelte";
 export * from "./icons.ts";
+export * from "./theme.ts";

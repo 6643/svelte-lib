@@ -314,7 +314,7 @@ const readOptionalBooleanField = (config: Record<string, unknown>, field: string
     return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected boolean.`);
 };
 
-const isPlainMountId = (mountId: string): boolean => /^[A-Za-z0-9_-]+$/.test(mountId);
+const isValidMountId = (mountId: string): boolean => !/\s/u.test(mountId) && !mountId.startsWith("#");
 
 const validateMountId = (value: unknown, field: string): Result<string> => {
     if (value !== undefined && typeof value !== "string") {
@@ -332,7 +332,7 @@ const validateMountId = (value: unknown, field: string): Result<string> => {
         return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a plain id token, not a selector-shaped value.`);
     }
 
-    if (!isPlainMountId(normalizedMountId)) {
+    if (!isValidMountId(normalizedMountId)) {
         return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a plain id token, not a selector-shaped value.`);
     }
 

@@ -36,10 +36,33 @@
     const cleanupDrag = () => {
         document.removeEventListener("pointermove", handlePointerMove);
         document.removeEventListener("pointerup", handlePointerUp);
+        document.removeEventListener("pointercancel", handlePointerCancel);
         dragState = null;
     };
 
     $effect(() => cleanupDrag);
+
+    const finishDrag = (shouldCommit: boolean) => {
+        if (!containerEl || !dragState) return;
+
+        const { currentIndex, draggedEl, initialIndex } = dragState;
+        cleanupDrag();
+
+        const itemElements = Array.from(containerEl.children) as HTMLElement[];
+        itemElements.forEach((itemEl) => {
+            itemEl.style.removeProperty("--translate-y");
+            itemEl.style.removeProperty("opacity");
+            itemEl.style.removeProperty("z-index");
+            itemEl.style.removeProperty("box-shadow");
+            itemEl.classList.remove("dragging", "displaced");
+        });
+
+        if (shouldCommit && currentIndex !== initialIndex) {
+            hookChange(reorderItems(items, initialIndex, currentIndex), initialIndex, currentIndex);
+        }
+
+        draggedEl.style.removeProperty("--translate-y");
+    };
 
     const handlePointerDown = ((event) => {
         if (!containerEl || event.button !== 0 || !event.isPrimary) return;
@@ -79,6 +102,7 @@
 
         document.addEventListener("pointermove", handlePointerMove);
         document.addEventListener("pointerup", handlePointerUp);
+        document.addEventListener("pointercancel", handlePointerCancel);
     }) as (event: PointerEvent) => void;
 
     const handlePointerMove = ((event) => {
@@ -100,27 +124,9 @@
         dragState = { ...dragState, currentIndex: nextIndex };
     }) as (event: PointerEvent) => void;
 
-    const handlePointerUp = () => {
-        if (!containerEl || !dragState) return;
+    const handlePointerUp = () => finishDrag(true);
 
-        const { currentIndex, draggedEl, initialIndex } = dragState;
-        cleanupDrag();
-
-        const itemElements = Array.from(containerEl.children) as HTMLElement[];
-        itemElements.forEach((itemEl) => {
-            itemEl.style.removeProperty("--translate-y");
-            itemEl.style.removeProperty("opacity");
-            itemEl.style.removeProperty("z-index");
-            itemEl.style.removeProperty("box-shadow");
-            itemEl.classList.remove("dragging", "displaced");
-        });
-
-        if (currentIndex !== initialIndex) {
-            hookChange(reorderItems(items, initialIndex, currentIndex), initialIndex, currentIndex);
-        }
-
-        draggedEl.style.removeProperty("--translate-y");
-    };
+    const handlePointerCancel = () => finishDrag(false);
 </script>
 
 <div bind:this={containerEl} class="sort-list-box">

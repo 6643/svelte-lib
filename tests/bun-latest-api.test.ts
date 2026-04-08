@@ -233,6 +233,17 @@ test("ui modernization removes export let and reactive label syntax", () => {
     }
 });
 
+test("theme api now lives in ui and useTheme is removed", () => {
+    const uiEntry = readRepoFile("src/ui/_.ts");
+    const useEntry = readRepoFile("src/use/_.ts");
+
+    expect(existsSync(resolve(repoRoot, "src/ui/theme.ts"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/use/useTheme.ts"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/use/useTheme.test.ts"))).toBe(false);
+    expect(uiEntry.includes('./theme.ts')).toBe(true);
+    expect(useEntry.includes("./useTheme.ts")).toBe(false);
+});
+
 test("route modernization removes legacy component syntax", () => {
     const files = ["src/route/Route.svelte"];
     const forbiddenPatterns = [/\bexport let\b/, /\n\s*\$:\s/, /\bonMount\b/];
