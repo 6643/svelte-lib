@@ -39,7 +39,6 @@ dev 源码边界：
 - 若 `appComponent` 位于其他顶级源码目录, dev 会以该顶级目录作为 app 源码树和 watch 根
 - `appComponent` 若是符号链接, 它解析后的目标仍必须留在对应的 app 源码树内
 - 本地源码导入必须留在 app 源码树内, 且当前只支持上述 `.ts`、`.js`、`.mjs`、`.svelte` 模块; 不支持 `file://`、绝对文件路径、其他本地源码扩展或 `import(expr)` 这类无法静态校验的直接文件导入
-- `package.json#imports` 可以指向 app 源码树内的本地模块，也可以指向已安装的外部依赖；若目标是本地文件，仍必须留在 app 源码树内
 
 公共配置与默认值：
 
@@ -142,8 +141,8 @@ src/lazy/ButtonDemo.svelte   2026-03-18 11:11:11  4.1 KiB  1.9 KiB
 - `builder.ts` 会作为模块直接执行, 然后读取它的默认导出; 只应在可信项目里运行, 不要把它当成纯声明式配置文件
 - 旧的 `svelte-builder.config.json` 已不再支持; 若项目中仍存在该文件, 请迁移并重命名为 `builder.ts`
 - 开发服务器的设计目标是本地开发, 不应当作为公网服务暴露; 当前 HTTP 500 响应会对客户端隐藏内部错误细节, 但控制台仍会输出完整异常, 方便本地排查
-- 若设置了 `PAGES_PROXY_URL`, 开发服务器只会把 `/items`、`/items/*`、`/cron` 和 `/cron/*` 转发到该上游; 像 `/itemshelf` 这类同前缀但不同边界的本地路由不会被代理, 且代理只允许 `GET/HEAD` 并会剥离 `Cookie`、`Authorization` 等凭证型请求头
 - 开发服务器只暴露受控 app 源码树、`/_node_modules/*` 和 `/assets/*`, 并对路径穿越与符号链接逃逸做了边界校验, 但这不等于适合承载不可信访问流量
+- 若当前环境里的 `fs.watch` 不可用, 开发服务器会直接输出 watcher 错误; 当前不再内置 polling fallback
 - 若要部署到生产环境, 建议在反向代理或静态托管层补充安全响应头, 至少包括 `Content-Security-Policy`、`X-Content-Type-Options: nosniff` 和合适的 `Referrer-Policy`
 
 ## 升级敏感边界
@@ -184,8 +183,7 @@ svelte-dev
 svelte-build
 ```
 
-当前仓库不再在 `src/builder/` 目录内内置示例组件或自用联调项目。
-受支持的完整样例 app 位于顶层 `demo/`，用来演示 `svelte-lib/builder` 与其他公开子路径的组合用法。
+当前仓库不再在 `src/builder/` 目录内内置示例组件或自用联调项目，也不再维护顶层样例 app。
 
 因此当前 builder modernization 的边界是：
 

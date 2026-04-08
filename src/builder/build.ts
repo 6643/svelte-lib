@@ -32,6 +32,7 @@ export type HtmlShell = {
 export type BuildArtifacts = {
     cssFile: string;
     htmlFile: string;
+    jsChunkFiles?: string[];
     jsFile: string;
     outDir: string;
 };
@@ -99,7 +100,6 @@ const isRelativeImportSpecifier = (specifier: string): boolean => specifier.star
 const isLocalFileImportSpecifier = (specifier: string): boolean => specifier.startsWith("file:") || isAbsolute(specifier);
 const isPackageImportSpecifier = (specifier: string): boolean => specifier.startsWith("#");
 const isIdentifierCharacter = (value: string | undefined): boolean => value !== undefined && /[A-Za-z0-9_$]/.test(value);
-const PACKAGE_IMPORT_CONDITION_PRIORITY = ["browser", "import", "default"] as const;
 
 const skipQuotedString = (source: string, start: number, quote: "'" | '"'): number => {
     let index = start + 1;
@@ -421,126 +421,6 @@ const resolveRelativeImportPath = async (specifier: string, importerPath: string
     );
 };
 
-const applyPackageImportPattern = (value: string, wildcardValue: string | undefined): string | undefined => {
-    if (wildcardValue === undefined) {
-        return value.includes("*") ? undefined : value;
-    }
-
-    return value.replaceAll("*", wildcardValue);
-};
-
-const selectPackageImportTarget = (target: unknown, wildcardValue?: string): string | undefined => {
-    if (typeof target === "string") {
-        return applyPackageImportPattern(target, wildcardValue);
-    }
-
-    if (Array.isArray(target)) {
-        for (const candidate of target) {
-            const resolved = selectPackageImportTarget(candidate, wildcardValue);
-            if (resolved !== undefined) {
-                return resolved;
-            }
-        }
-
-        return undefined;
-    }
-
-    if (typeof target !== "object" || target === null) {
-        return undefined;
-    }
-
-    for (const key of PACKAGE_IMPORT_CONDITION_PRIORITY) {
-        if (key in target) {
-            const resolved = selectPackageImportTarget((target as Record<string, unknown>)[key], wildcardValue);
-            if (resolved !== undefined) {
-                return resolved;
-            }
-        }
-    }
-
-    for (const value of Object.values(target as Record<string, unknown>)) {
-        const resolved = selectPackageImportTarget(value, wildcardValue);
-        if (resolved !== undefined) {
-            return resolved;
-        }
-    }
-
-    return undefined;
-};
-
-type PackageImportMatch = {
-    keyLength: number;
-    wildcardValue?: string;
-};
-
-const matchPackageImportSpecifier = (specifier: string, key: string): PackageImportMatch | null => {
-    if (!key.includes("*")) {
-        return key === specifier ? { keyLength: key.length } : null;
-    }
-
-    const [prefix, suffix] = key.split("*");
-    if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix)) {
-        return null;
-    }
-
-    return {
-        keyLength: key.length,
-        wildcardValue: specifier.slice(prefix.length, specifier.length - suffix.length),
-    };
-};
-
-export const getPackageImportTarget = (imports: unknown, specifier: string): string | undefined => {
-    if (typeof imports !== "object" || imports === null || Array.isArray(imports)) {
-        return undefined;
-    }
-
-    const matches: Array<{ keyLength: number; target: unknown; wildcardValue?: string }> = [];
-    for (const [key, target] of Object.entries(imports as Record<string, unknown>)) {
-        const match = matchPackageImportSpecifier(specifier, key);
-        if (match === null) {
-            continue;
-        }
-
-        matches.push({
-            keyLength: match.keyLength,
-            target,
-            wildcardValue: match.wildcardValue,
-        });
-    }
-
-    matches.sort((left, right) => right.keyLength - left.keyLength);
-
-    for (const match of matches) {
-        const resolved = selectPackageImportTarget(match.target, match.wildcardValue);
-        if (resolved !== undefined) {
-            return resolved;
-        }
-    }
-
-    return undefined;
-};
-
-const findNearestPackageRoot = async (importerPath: string): Promise<Result<string>> => {
-    let currentDir = dirname(importerPath);
-
-    while (true) {
-        const packageJsonPath = join(currentDir, "package.json");
-        if (await Bun.file(packageJsonPath).exists()) {
-            return ok(currentDir);
-        }
-
-        const parentDir = dirname(currentDir);
-        if (parentDir === currentDir) {
-            return fail(`Failed to resolve package root for ${importerPath}`);
-        }
-
-        currentDir = parentDir;
-    }
-};
-
-const resolvePackageImportTargetPath = (packageRoot: string, target: string): string =>
-    isAbsolute(target) ? target : join(packageRoot, target);
-
 const buildImportScanner = new Bun.Transpiler({ loader: "js" });
 const buildTypeScriptTranspiler = new Bun.Transpiler({ loader: "ts" });
 
@@ -606,9 +486,7 @@ export const validateLocalSourceImportGraph = async (entryPath: string, allowedR
                     .map((record) => record.path)
                     .filter(
                         (specifier) =>
-                            isRelativeImportSpecifier(specifier) ||
-                            isLocalFileImportSpecifier(specifier) ||
-                            isPackageImportSpecifier(specifier),
+                            isRelativeImportSpecifier(specifier) || isLocalFileImportSpecifier(specifier) || isPackageImportSpecifier(specifier),
                     ),
             ),
         );
@@ -619,49 +497,7 @@ export const validateLocalSourceImportGraph = async (entryPath: string, allowedR
             }
 
             if (isPackageImportSpecifier(specifier)) {
-                const packageRoot = await findNearestPackageRoot(currentPath);
-                if (!packageRoot.ok) {
-                    return packageRoot;
-                }
-
-                const packageJson = await Bun.file(join(packageRoot.value, "package.json")).json().catch(() => undefined);
-                const target = getPackageImportTarget(
-                    typeof packageJson === "object" && packageJson !== null ? (packageJson as Record<string, unknown>).imports : undefined,
-                    specifier,
-                );
-                if (target === undefined) {
-                    return fail(`Failed to resolve ${specifier} from ${currentPath}`);
-                }
-
-                if (!isRelativeImportSpecifier(target) && !isLocalFileImportSpecifier(target) && !isPackageImportSpecifier(target)) {
-                    continue;
-                }
-
-                if (isPackageImportSpecifier(target)) {
-                    return fail(`Nested package import targets are not supported in app source tree: ${specifier} from ${currentPath}`);
-                }
-
-                const resolvedImportPath = resolvePackageImportTargetPath(packageRoot.value, target);
-                const resolvedLocalImportPath = (() => {
-                    try {
-                        return realpathSync(resolvedImportPath);
-                    } catch {
-                        return resolvedImportPath;
-                    }
-                })();
-
-                if (!isPathWithinAnyRoot(allowedRoots, resolvedLocalImportPath)) {
-                    return fail(`Local import escaped app source tree: ${specifier} from ${currentPath}`);
-                }
-
-                if (!isSupportedLocalSourceModule(resolvedImportPath)) {
-                    return fail(
-                        `Unsupported local source module in app source tree: ${specifier} from ${currentPath}. Supported module extensions: ${formatSupportedLocalSourceModuleExtensions()}.`,
-                    );
-                }
-
-                pending.push(resolvedImportPath);
-                continue;
+                return fail(`App-local package imports are not supported in app source tree: ${specifier} from ${currentPath}`);
             }
 
             const resolvedImport = await resolveRelativeImportPath(specifier, currentPath);
@@ -1532,6 +1368,10 @@ export const buildSvelte = async (options: BuildSvelteOptions = {}): Promise<Res
         return ok({
             cssFile: cssFile.value,
             htmlFile: htmlFile.value,
+            jsChunkFiles: rewrittenAssets.value
+                .filter((asset) => asset.kind === "chunk")
+                .map((asset) => asset.finalFile)
+                .sort(),
             jsFile: entryAsset.finalFile,
             outDir: validatedOutDir.value,
         });

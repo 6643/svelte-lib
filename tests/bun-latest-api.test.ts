@@ -78,6 +78,23 @@ test("builder Bun types use module imports instead of legacy namespace reference
     }
 });
 
+test("builder dev no longer documents a built-in proxy layer", () => {
+    const source = readRepoFile("src/builder/dev.ts");
+    const readme = readRepoFile("src/builder/README.md");
+
+    expect(source.includes("PAGES_PROXY_URL")).toBe(false);
+    expect(readme.includes("PAGES_PROXY_URL")).toBe(false);
+});
+
+test("builder README no longer documents app-local package imports or watcher polling fallback", () => {
+    const source = readRepoFile("src/builder/dev.ts");
+    const readme = readRepoFile("src/builder/README.md");
+
+    expect(readme.includes("package.json#imports")).toBe(false);
+    expect(source.includes("pollSnapshot")).toBe(false);
+    expect(source.includes("isRecoverableDevWatcherSetupError")).toBe(false);
+});
+
 test("tests use Svelte's public client API instead of internal source paths", () => {
     const files = [
         "src/route/tests/route-component.test.ts",
@@ -287,7 +304,6 @@ test("builder README documents the intentional Svelte internal runtime boundary"
     expect(readme.includes("svelte/internal/client")).toBe(true);
     expect(readme.includes("升级敏感边界")).toBe(true);
     expect(readme.includes("bun run build")).toBe(true);
-    expect(readme.includes("package.json#imports")).toBe(true);
 });
 
 test("builder docs use the published CLI command names consistently", () => {
@@ -312,10 +328,11 @@ test("migration guide documents the builder CLI rename as a breaking change", ()
     expect(migration.includes("svelte-dev")).toBe(true);
 });
 
-test("builder README points readers at the supported top-level demo app", () => {
+test("builder README no longer points readers at a removed top-level demo app", () => {
     const readme = readRepoFile("src/builder/README.md");
 
-    expect(readme.includes("顶层 `demo/`")).toBe(true);
+    expect(readme.includes("顶层 `demo/`")).toBe(false);
+    expect(readme.includes("不再维护顶层样例 app")).toBe(true);
 });
 
 test("builder dev runtime logs use the published dev command name", () => {
@@ -323,6 +340,14 @@ test("builder dev runtime logs use the published dev command name", () => {
 
     expect(devSource.includes("[svelte-builder]")).toBe(false);
     expect(devSource.includes("[svelte-dev]")).toBe(true);
+});
+
+test("root README no longer documents a removed top-level demo app", () => {
+    const readme = readRepoFile("README.md");
+
+    expect(readme.includes("## Demo")).toBe(false);
+    expect(readme.includes("demo/README.md")).toBe(false);
+    expect(readme.includes("svelte-lib/demo")).toBe(false);
 });
 
 test("builder source config uses ts and local counters use arrow functions", () => {

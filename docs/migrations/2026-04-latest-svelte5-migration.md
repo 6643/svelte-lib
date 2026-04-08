@@ -57,7 +57,32 @@ svelte-dev
 - `svelte-builder dev` 不再可用
 - 仓库根目录也不再提供 `builder:build` / `builder:dev` 脚本，因为根仓库本身不是 builder app
 
-### 2. `route` 不再导出 `lazyRoute`
+### 2. builder 不再内置 `/items` 与 `/cron` 的 dev 代理
+
+旧行为：
+
+- 设置 `PAGES_PROXY_URL` 后，`svelte-dev` 会代理 `/items`、`/items/*`、`/cron` 和 `/cron/*`
+
+新行为：
+
+- `PAGES_PROXY_URL` 不再生效
+- `svelte-dev` 只负责本地 app 源码、`/_node_modules/*` 与 `/assets/*` 的服务
+- 如果项目需要代理后端接口，应由项目自身的 dev 环境提供
+
+### 3. builder 不再支持 app-local `package.json#imports` 与 watcher polling fallback
+
+旧行为：
+
+- app 自己的 `package.json#imports` 会被 `builder` 特别解析
+- `fs.watch` 失败时，`svelte-dev` 会自动降级到 polling fallback
+
+新行为：
+
+- `builder` 只支持相对导入、普通 bare import，以及 `svelte` 运行时 alias
+- app 自己的 `package.json#imports` 不再受支持
+- `fs.watch` 失败时会直接输出 watcher 错误，不再自动轮询
+
+### 4. `route` 不再导出 `lazyRoute`
 
 旧写法：
 
@@ -79,7 +104,34 @@ svelte-dev
 <Route path="/settings" component={() => import("./Settings.svelte")} />
 ```
 
-### 3. 多个 UI 组件从 slot API 收敛到 snippet prop API
+### 5. `routeForwardPath` 已移除，来源感知收缩为 router-managed only
+
+旧写法：
+
+```ts
+import {
+  routeBackPath,
+  routeCurrentPath,
+  routeForwardPath
+} from "svelte-lib/route";
+```
+
+新写法：
+
+```ts
+import {
+  routeBackPath,
+  routeCurrentPath
+} from "svelte-lib/route";
+```
+
+说明：
+
+- `routeForwardPath` 不再导出
+- `routeBackPath()` 仍保留，但只对 `routePush()` / `routeReplace()` 形成的 router-managed 导航链路保证准确
+- 外部代码直接调用原生 `history.pushState()` / `history.replaceState()` 时，不再承诺同步 router 辅助状态
+
+### 6. 多个 UI 组件从 slot API 收敛到 snippet prop API
 
 受影响组件：
 

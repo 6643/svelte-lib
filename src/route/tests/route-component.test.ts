@@ -338,7 +338,7 @@ describe('Route component', () => {
     expect(target.querySelector('[data-testid="sync-b"]')?.textContent).toBe('{}');
   });
 
-  test('native history.pushState rerenders the matched route', async () => {
+  test('native history.pushState does not rerender until popstate', async () => {
     cleanupDom();
     cleanupDom = installDom('/a');
     __resetRouteSystemForTest();
@@ -356,6 +356,12 @@ describe('Route component', () => {
     expect(target.querySelector('[data-testid="sync-a"]')?.textContent).toBe('{}');
 
     history.pushState({ foo: 1 }, '', '/b');
+    flushSync();
+
+    expect(target.querySelector('[data-testid="sync-a"]')?.textContent).toBe('{}');
+    expect(target.querySelector('[data-testid="sync-b"]')).toBeNull();
+
+    window.dispatchEvent(new window.PopStateEvent('popstate', { state: history.state }));
     flushSync();
 
     expect(target.querySelector('[data-testid="sync-b"]')?.textContent).toBe('{}');

@@ -122,7 +122,6 @@ bun add /._/svelte-lib
 import {
   routeBackPath,
   routeCurrentPath,
-  routeForwardPath,
   routePush,
   routeReplace
 } from 'svelte-lib/route';
@@ -133,7 +132,6 @@ routeReplace('https://app.test/user?id=3');
 
 const current = routeCurrentPath();
 const back = routeBackPath(); // string | null
-const forward = routeForwardPath(); // string | null
 ```
 
 支持的导航输入：
@@ -149,8 +147,9 @@ const forward = routeForwardPath(); // string | null
 - 导航到当前归一化路径时不会执行任何操作
 - 纯 hash 导航目标会被当作无操作并忽略
 - 浏览器前进/后退会同步更新路由渲染与辅助方法输出
-- 原生同文档 `history.pushState()` / `history.replaceState()` 会同步到路由状态
-- 路由管理的 back/forward hint 最多保留最近 100 条 managed entry
+- `routeBackPath()` 只对通过 `routePush()` / `routeReplace()` 形成的 router-managed 导航链路保证准确
+- 外部代码直接调用原生 `history.pushState()` / `history.replaceState()` 时，不再承诺同步 router 辅助状态
+- 路由管理的 back hint 最多保留最近 100 条 managed entry
 - 仅 query 的更新会保留当前 hash fragment
 
 以下非法导航输入会抛错：
@@ -188,7 +187,7 @@ const forward = routeForwardPath(); // string | null
 
 - 仅支持客户端 SPA 路由
 - 需要浏览器环境
-- 路由管理的 history metadata 只在当前 runtime session 内有效；过期或外部 managed state 会被修复到当前路径
+- 路由管理的 history metadata 只在当前 runtime session 内有效；外部或过期 history state 不再尝试修复成 router-managed 链路
 - 不包含动态路径参数
 - 不包含嵌套路由
 - 不包含 anchor interception

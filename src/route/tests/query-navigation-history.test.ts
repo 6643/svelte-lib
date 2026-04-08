@@ -200,7 +200,7 @@ describe('navigation', () => {
 });
 
 describe('history state', () => {
-  test('repairs non router managed history state and preserves foreign fields', () => {
+  test('non router managed history state initializes a fresh managed stack', () => {
     const state = normalizeHistoryState({ foo: 1 }, '/', PRIMARY_OWNER);
 
     expect(state.foo).toBe(1);
@@ -210,7 +210,7 @@ describe('history state', () => {
     });
   });
 
-  test('repairs malformed router managed history state and preserves foreign fields', () => {
+  test('malformed router managed history state initializes a fresh managed stack', () => {
     const state = normalizeHistoryState(
       {
         foo: 1,
@@ -230,7 +230,7 @@ describe('history state', () => {
     });
   });
 
-  test('repairs valid-shape router managed history state created by another owner', () => {
+  test('managed history state from another owner initializes a fresh managed stack', () => {
     const foreignState = buildPushState(normalizeHistoryState(undefined, '/a', FOREIGN_OWNER), '/b', FOREIGN_OWNER);
     const normalized = normalizeHistoryState(foreignState, '/b', PRIMARY_OWNER);
 
@@ -313,7 +313,7 @@ describe('public api', () => {
     expect(typeof entry.routeReplace).toBe('function');
     expect(typeof entry.routeCurrentPath).toBe('function');
     expect(typeof entry.routeBackPath).toBe('function');
-    expect(typeof entry.routeForwardPath).toBe('function');
+    expect('routeForwardPath' in entry).toBe(false);
     expect('__resetRouteSystemForTest' in entry).toBe(false);
   });
 });

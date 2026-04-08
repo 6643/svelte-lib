@@ -107,52 +107,52 @@ test("resolveBareImportPathForDev rewrites package imports against the importer 
     }
 });
 
-test("resolveBareImportPathForDev keeps app-local package imports on the app source path", async () => {
+test("resolveBareImportPathForDev rejects app-local package imports on the app source path", async () => {
     const { importerPath, rootDir } = await createTempAppPackage();
 
     try {
         const result = await resolveBareImportPathForDev("#client", importerPath);
 
-        expect(result.ok).toBe(true);
-        if (!result.ok) {
-            throw new Error(result.error);
+        expect(result.ok).toBe(false);
+        if (result.ok) {
+            throw new Error("Expected app-local package imports to be unsupported");
         }
 
-        expect(result.value).toBe("./client.ts");
+        expect(result.error.includes("package imports are not supported")).toBe(true);
     } finally {
         await rm(rootDir, { force: true, recursive: true });
     }
 });
 
-test("resolveBareImportPathForDev preserves nested app package prefixes for package imports", async () => {
+test("resolveBareImportPathForDev rejects nested app package imports", async () => {
     const { importerPath, rootDir } = await createTempNestedAppPackage();
 
     try {
         const result = await resolveBareImportPathForDev("#client", importerPath);
 
-        expect(result.ok).toBe(true);
-        if (!result.ok) {
-            throw new Error(result.error);
+        expect(result.ok).toBe(false);
+        if (result.ok) {
+            throw new Error("Expected nested app package imports to be unsupported");
         }
 
-        expect(result.value).toBe("./client.ts");
+        expect(result.error.includes("package imports are not supported")).toBe(true);
     } finally {
         await rm(rootDir, { force: true, recursive: true });
     }
 });
 
-test("resolveBareImportPathForDev rewrites app-local package imports that target external dependencies", async () => {
+test("resolveBareImportPathForDev rejects app-local package imports that target external dependencies", async () => {
     const { importerPath, rootDir } = await createTempExternalPackageImportApp();
 
     try {
         const result = await resolveBareImportPathForDev("#runtime", importerPath);
 
-        expect(result.ok).toBe(true);
-        if (!result.ok) {
-            throw new Error(result.error);
+        expect(result.ok).toBe(false);
+        if (result.ok) {
+            throw new Error("Expected app-local package imports to be unsupported");
         }
 
-        expect(result.value).toBe("/_node_modules/svelte/src/index-client.js");
+        expect(result.error.includes("package imports are not supported")).toBe(true);
     } finally {
         await rm(rootDir, { force: true, recursive: true });
     }

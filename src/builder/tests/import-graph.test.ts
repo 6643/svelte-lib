@@ -38,7 +38,7 @@ test("validateLocalSourceImportGraph rejects app-local package imports that esca
     }
 });
 
-test("validateLocalSourceImportGraph allows app-local package imports that target external dependencies", async () => {
+test("validateLocalSourceImportGraph rejects app-local package imports that target external dependencies", async () => {
     const rootDir = `/tmp/svelte-builder-import-graph-external-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     await rm(rootDir, { recursive: true, force: true });
@@ -58,10 +58,13 @@ test("validateLocalSourceImportGraph allows app-local package imports that targe
     try {
         const result = await validateLocalSourceImportGraph(join(rootDir, "src", "App.ts"), [realpathSync(join(rootDir, "src"))]);
 
-        expect(result.ok).toBe(true);
-        if (!result.ok) {
-            throw new Error(result.error);
+        expect(result.ok).toBe(false);
+        if (result.ok) {
+            throw new Error("Expected app-local package imports to be unsupported");
         }
+
+        expect(result.error.includes("#runtime")).toBe(true);
+        expect(result.error.includes("package imports are not supported")).toBe(true);
     } finally {
         await rm(rootDir, { recursive: true, force: true });
     }

@@ -10,7 +10,6 @@ import { compile } from "svelte/compiler";
 import {
     createHtmlShell,
     type BuildSvelteOptions,
-    getPackageImportTarget,
     type Result,
     loadSvelteConfig,
     resolveAppSourceRoot,
@@ -57,7 +56,6 @@ type DevRuntimeState = {
 
 const EXCLUDED_DIRS = ["node_modules", ".git", "dist"];
 const DEV_WATCH_DEBOUNCE_MS = 100;
-const DEV_WATCH_POLL_MS = 250;
 const DEV_SPECIAL_IMPORTS = {
     "esm-env": "/_virtual/esm-env.js",
     svelte: "/_node_modules/svelte/src/index-client.js",
@@ -85,12 +83,7 @@ const getErrorCode = (error: unknown): string | undefined =>
     error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
 
 const escapeHtml = (value: string): string =>
-    value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 const createNotFoundResponse = (): Response => new Response("Not Found", { status: 404 });
 const createMethodNotAllowedResponse = (): Response =>
@@ -234,9 +227,7 @@ const isBareImportSpecifier = (specifier: string): boolean =>
 const isPackageImportSpecifier = (specifier: string): boolean => specifier.startsWith("#");
 
 const isNodeModulesPackageRoot = (packageRoot: string): boolean =>
-    normalizeModulePath(packageRoot)
-        .split("/")
-        .includes("node_modules");
+    normalizeModulePath(packageRoot).split("/").includes("node_modules");
 
 const getPackageNameFromSpecifier = (specifier: string): string => {
     const segments = specifier.split("/");
@@ -249,7 +240,7 @@ const getPackageNameFromSpecifier = (specifier: string): string => {
 
 const resolveImporterPackageForDev = async (
     importerPath: string,
-): Promise<Result<{ imports: unknown; packageName: string; packageRoot: string }>> => {
+): Promise<Result<{ packageName: string; packageRoot: string }>> => {
     let currentDir = dirname(importerPath);
 
     while (true) {
@@ -265,19 +256,12 @@ const resolveImporterPackageForDev = async (
             }
 
             const packageName =
-                typeof packageJson === "object" && packageJson !== null && "name" in packageJson
-                    ? packageJson.name
-                    : undefined;
+                typeof packageJson === "object" && packageJson !== null && "name" in packageJson ? packageJson.name : undefined;
             if (typeof packageName !== "string" || packageName.length === 0) {
                 return fail(`Missing package name in ${packageJsonPath}`);
             }
 
-            const imports =
-                typeof packageJson === "object" && packageJson !== null && "imports" in packageJson
-                    ? packageJson.imports
-                    : undefined;
-
-            return ok({ imports, packageName, packageRoot: currentDir });
+            return ok({ packageName, packageRoot: currentDir });
         }
 
         const parentDir = dirname(currentDir);
@@ -325,24 +309,7 @@ export const resolveBareImportPathForDev = async (specifier: string, importerPat
         }
 
         if (!isNodeModulesPackageRoot(importerPackage.value.packageRoot)) {
-            const target = getPackageImportTarget(importerPackage.value.imports, specifier);
-            if (target !== undefined) {
-                if (isPackageImportSpecifier(target) || isBareImportSpecifier(target)) {
-                    if (target === specifier) {
-                        return fail(`Package import target resolved recursively for ${specifier} in ${importerPath}`);
-                    }
-
-                    return resolveBareImportPathForDev(target, importerPath);
-                }
-
-                const resolvedPath = isAbsolute(target) ? target : join(importerPackage.value.packageRoot, target);
-                const relativePath = relative(importerPackage.value.packageRoot, resolvedPath);
-                if (relativePath.length === 0 || relativePath.startsWith("..") || isAbsolute(relativePath)) {
-                    return fail(`Resolved import escaped package root for ${specifier}: ${resolvedPath}`);
-                }
-
-                return ok(toRelativeImportSpecifier(importerPath, resolvedPath));
-            }
+            return fail(`App-local package imports are not supported in dev: ${specifier} from ${importerPath}`);
         }
 
         return Promise.resolve()
@@ -433,11 +400,6 @@ const getWatcherErrorCode = (error: unknown): string | undefined =>
 const isIgnorableDevWatcherError = (error: unknown): boolean => {
     const errorCode = getWatcherErrorCode(error);
     return errorCode === "ENOENT" || errorCode === "ENOTDIR";
-};
-
-export const isRecoverableDevWatcherSetupError = (error: unknown): boolean => {
-    const errorCode = getWatcherErrorCode(error);
-    return errorCode === "EINVAL" || errorCode === "ENOSPC";
 };
 
 export const formatDevWatcherIssue = (context: string, error: unknown): string | undefined => {
@@ -671,9 +633,6 @@ const createDevReloadHub = (
     const listeners = new Set<(data: string) => void>();
     const recentEvents = new Map<string, number>();
     const watchedDirs = new Set<string>();
-    let activeWatchRoots = watchRoots;
-    let pollSnapshot = new Map<string, { mtimeMs: number; target: DevWatchTarget }>();
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
     let recursiveWatchRoots = new Set(watchRoots.filter((root) => root.recursive).map((root) => root.path));
     const cache = createDevCompileCache();
     let allowedRoots = Array.from(
@@ -696,19 +655,8 @@ const createDevReloadHub = (
         watchedDirs.clear();
     };
 
-    const stopPolling = (): void => {
-        if (pollTimer === null) {
-            return;
-        }
-
-        clearInterval(pollTimer);
-        pollTimer = null;
-        pollSnapshot.clear();
-    };
-
     const stop = (): void => {
         stopWatchers();
-        stopPolling();
         listeners.clear();
     };
 
@@ -723,130 +671,7 @@ const createDevReloadHub = (
         return entry.isDirectory() && !entry.isSymbolicLink();
     };
 
-    const createPollSnapshot = (): Map<string, { mtimeMs: number; target: DevWatchTarget }> => {
-        const snapshot = new Map<string, { mtimeMs: number; target: DevWatchTarget }>();
-
-        const visitDirectory = (dir: string, recursive: boolean): void => {
-            let entries: Array<{ isDirectory: () => boolean; isFile: () => boolean; name: string }>;
-            try {
-                entries = readdirSync(dir, { encoding: "utf8", withFileTypes: true }) as Array<{
-                    isDirectory: () => boolean;
-                    isFile: () => boolean;
-                    name: string;
-                }>;
-            } catch (error) {
-                if (isIgnorableDevWatcherError(error)) {
-                    return;
-                }
-
-                throw error;
-            }
-
-            for (const entry of entries) {
-                const fullPath = join(dir, entry.name);
-                if (entry.isDirectory()) {
-                    if (recursive && !isExcludedWatchDirectory(entry.name) && !entry.name.startsWith(".")) {
-                        visitDirectory(fullPath, true);
-                    }
-                    continue;
-                }
-
-                if (!entry.isFile()) {
-                    continue;
-                }
-
-                const target = classifyDevWatchTarget({
-                    eventPath: fullPath,
-                    fileStatus: "file",
-                    filename: entry.name,
-                    watchDir,
-                });
-                if (target.kind === "ignore") {
-                    continue;
-                }
-
-                snapshot.set(fullPath, {
-                    mtimeMs: statSync(fullPath).mtimeMs,
-                    target,
-                });
-            }
-        };
-
-        for (const root of activeWatchRoots) {
-            visitDirectory(root.path, root.recursive);
-        }
-
-        return snapshot;
-    };
-
-    const notifyPolledChanges = (nextSnapshot: Map<string, { mtimeMs: number; target: DevWatchTarget }>): void => {
-        const changedPaths = new Set<string>([...pollSnapshot.keys(), ...nextSnapshot.keys()]);
-        let configChanged = false;
-
-        for (const path of changedPaths) {
-            const previous = pollSnapshot.get(path);
-            const current = nextSnapshot.get(path);
-            if (
-                previous !== undefined &&
-                current !== undefined &&
-                previous.mtimeMs === current.mtimeMs &&
-                previous.target.kind === current.target.kind
-            ) {
-                continue;
-            }
-
-            const target = current?.target ?? previous?.target;
-            if (target === undefined) {
-                continue;
-            }
-
-            if (target.kind === "config") {
-                configChanged = true;
-                continue;
-            }
-
-            if (target.kind !== "module") {
-                continue;
-            }
-
-            if (!shouldProcessDevWatchEvent(recentEvents, target.modulePath)) {
-                continue;
-            }
-
-            notify("reload");
-            void compileChangedDevAsset(watchDir, target.modulePath, cache, allowedRoots);
-        }
-
-        if (configChanged) {
-            void Promise.resolve(onConfigFileChange?.()).catch((error) => {
-                console.error(getErrorMessage(error));
-            });
-        }
-    };
-
-    const startPolling = (): void => {
-        if (pollTimer !== null) {
-            return;
-        }
-
-        stopWatchers();
-        pollSnapshot = createPollSnapshot();
-        pollTimer = setInterval(() => {
-            try {
-                const nextSnapshot = createPollSnapshot();
-                notifyPolledChanges(nextSnapshot);
-                pollSnapshot = nextSnapshot;
-            } catch (error) {
-                reportDevWatcherIssue("poll runtime", error);
-            }
-        }, DEV_WATCH_POLL_MS);
-    };
-
     const watchDirectory = (dir: string, recursive: boolean) => {
-        if (pollTimer !== null) {
-            return;
-        }
-
         if (watchedDirs.has(dir)) {
             return;
         }
@@ -868,7 +693,11 @@ const createDevReloadHub = (
                             if (entry.isFile()) return "file" as const;
                             return "other" as const;
                         } catch (error) {
-                            return isIgnorableDevWatcherError(error) ? ("missing" as const) : (() => { throw error; })();
+                            return isIgnorableDevWatcherError(error)
+                                ? ("missing" as const)
+                                : (() => {
+                                      throw error;
+                                  })();
                         }
                     })();
 
@@ -919,19 +748,13 @@ const createDevReloadHub = (
             }
         } catch (error) {
             watchedDirs.delete(dir);
-            if (isRecoverableDevWatcherSetupError(error)) {
-                startPolling();
-                return;
-            }
             reportDevWatcherIssue(`watch setup for ${dir}`, error);
         }
     };
 
     const reconfigure = (nextWatchRoots: DevWatchRoot[]): void => {
         stopWatchers();
-        stopPolling();
         recentEvents.clear();
-        activeWatchRoots = nextWatchRoots;
 
         recursiveWatchRoots = new Set(nextWatchRoots.filter((root) => root.recursive).map((root) => root.path));
         allowedRoots = Array.from(
@@ -1000,34 +823,6 @@ const createSSEResponse = (hub: DevReloadHub, signal: AbortSignal) => {
 };
 
 const createInternalServerErrorResponse = (): Response => new Response("Internal Server Error", { status: 500 });
-
-export const shouldProxyDevRequestPath = (rawPathname: string): boolean =>
-    rawPathname === "/items" ||
-    rawPathname.startsWith("/items/") ||
-    rawPathname === "/cron" ||
-    rawPathname.startsWith("/cron/");
-
-export const shouldProxyDevRequestMethod = (method: string): boolean => method === "GET" || method === "HEAD";
-
-const DEV_PROXY_ALLOWED_HEADERS = new Set(["accept", "accept-language", "cache-control", "if-modified-since", "if-none-match"]);
-
-export const createDevProxyHeaders = (headers: Headers): Headers => {
-    const nextHeaders = new Headers();
-
-    for (const [name, value] of headers.entries()) {
-        if (DEV_PROXY_ALLOWED_HEADERS.has(name.toLowerCase())) {
-            nextHeaders.set(name, value);
-        }
-    }
-
-    return nextHeaders;
-};
-
-export const createDevProxyFetchInit = (request: Request): RequestInit => ({
-    headers: createDevProxyHeaders(request.headers),
-    method: request.method,
-    signal: request.signal,
-});
 
 const createDevModuleErrorResponse = (error: string): Response => {
     if (error.startsWith("Missing file:")) {
@@ -1459,20 +1254,6 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
         async (req: Request) => {
             const url = new URL(req.url);
             const rawPathname = getRawRequestPathname(req.url);
-
-            const proxyTarget = process.env.PAGES_PROXY_URL;
-            if (proxyTarget && shouldProxyDevRequestPath(rawPathname)) {
-                if (!shouldProxyDevRequestMethod(req.method)) {
-                    return createMethodNotAllowedResponse();
-                }
-
-                try {
-                    return await fetch(`${proxyTarget}${rawPathname}${url.search}`, createDevProxyFetchInit(req));
-                } catch (error) {
-                    console.error(`[svelte-dev] Proxy failed for ${rawPathname}:`, getErrorMessage(error));
-                    return new Response("Proxy error", { status: 502 });
-                }
-            }
 
             if (req.method !== "GET" && req.method !== "HEAD") {
                 return createMethodNotAllowedResponse();

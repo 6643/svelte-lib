@@ -24,14 +24,6 @@ bun add /._/svelte-lib
 bun install
 ```
 
-## Demo
-
-仓库顶层 `demo/` 是一个完整的对外样例 app，用来演示 `svelte-lib/ui`、`svelte-lib/use`、`svelte-lib/route` 和 `svelte-lib/builder` 的组合用法。
-
-它不是额外的包导出路径，不能通过 `svelte-lib/demo` 导入。
-
-样例工程自己的安装、运行、构建与类型检查说明见 [`demo/README.md`](./demo/README.md)。
-
 ## 导入
 
 ```ts

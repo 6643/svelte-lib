@@ -56,27 +56,9 @@ test("root package owns builder dependency policy without pretending to be a bui
     expect(existsSync(new URL("../src/builder/cli.ts", import.meta.url))).toBe(false);
 });
 
-test("top-level demo exists as a sample app without becoming a package export", () => {
+test("repo no longer carries a top-level demo app or demo export", () => {
     const rootPackage = readJson(new URL("../package.json", import.meta.url));
-    const demoPackage = readJson(new URL("../demo/package.json", import.meta.url));
-    const demoAppSource = readFileSync(new URL("../demo/src/App.svelte", import.meta.url), "utf8");
 
-    expect(existsSync(new URL("../demo/package.json", import.meta.url))).toBe(true);
-    expect(existsSync(new URL("../demo/builder.ts", import.meta.url))).toBe(true);
-    expect(existsSync(new URL("../demo/src/App.svelte", import.meta.url))).toBe(true);
-    expect(existsSync(new URL("../demo/src/routes/LazyProfile.svelte", import.meta.url))).toBe(true);
+    expect(existsSync(new URL("../demo", import.meta.url))).toBe(false);
     expect(rootPackage.exports?.["./demo"]).toBeUndefined();
-    expect(demoPackage.name).toBe("svelte-lib-demo");
-    expect(demoPackage.scripts).toEqual({
-        dev: "svelte-dev",
-        build: "svelte-build",
-        typecheck: "svelte-check --tsconfig ./tsconfig.json",
-    });
-    expect(demoPackage.devDependencies).toEqual({
-        "svelte-check": "latest",
-        typescript: "latest",
-    });
-    expect(demoAppSource.includes('component={() => import("./routes/LazyProfile.svelte")}')).toBe(true);
-    expect(demoAppSource.includes('routePush("/lazy')).toBe(true);
-    expect(existsSync(new URL("../demo/tsconfig.json", import.meta.url))).toBe(true);
 });

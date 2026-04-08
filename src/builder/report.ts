@@ -89,7 +89,7 @@ export const formatAssetReport = (title: string, rows: AssetReportRow[], options
 };
 
 export const formatBuildReport = (artifacts: BuildArtifacts): string => {
-    const rows = [artifacts.jsFile, artifacts.cssFile, artifacts.htmlFile].map((file) => {
+    const rows = [artifacts.jsFile, ...(artifacts.jsChunkFiles ?? []), artifacts.cssFile, artifacts.htmlFile].map((file) => {
         const buffer = readFileSync(join(artifacts.outDir, file));
 
         return {

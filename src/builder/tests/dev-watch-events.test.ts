@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
-import { classifyDevWatchTarget, isRecoverableDevWatcherSetupError } from "../dev";
+import * as devModule from "../dev";
+
+const { classifyDevWatchTarget } = devModule;
 
 test("classifyDevWatchTarget marks missing watched files as reloadable modules", () => {
     const result = classifyDevWatchTarget({
@@ -42,8 +44,6 @@ test("classifyDevWatchTarget ignores paths outside the watch root", () => {
     });
 });
 
-test("isRecoverableDevWatcherSetupError treats platform watcher limits as fallback-worthy", () => {
-    expect(isRecoverableDevWatcherSetupError({ code: "EINVAL" })).toBe(true);
-    expect(isRecoverableDevWatcherSetupError({ code: "ENOSPC" })).toBe(true);
-    expect(isRecoverableDevWatcherSetupError({ code: "ENOENT" })).toBe(false);
+test("builder dev no longer exports a watcher polling fallback helper", () => {
+    expect("isRecoverableDevWatcherSetupError" in devModule).toBe(false);
 });

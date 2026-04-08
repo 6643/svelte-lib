@@ -8,8 +8,15 @@
         "strict": true,
         "skipLibCheck": true,
         "isolatedModules": true,
-        "lib": ["DOM", "ESNext"],
-        "types": ["bun", "node", "svelte"]
+        "lib": [
+            "DOM",
+            "ESNext"
+        ],
+        "types": [
+            "bun",
+            "node",
+            "svelte"
+        ],
     },
     "include": [
         "*.ts",
@@ -18,5 +25,5 @@
         "src/**/*.d.ts",
         "src/**/*.svelte",
         "tests/**/*.ts"
-    ]
+    ],
 }
