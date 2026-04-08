@@ -66,7 +66,7 @@ svelte-dev
 新行为：
 
 - `PAGES_PROXY_URL` 不再生效
-- `svelte-dev` 只负责本地 app 源码、`/_node_modules/*` 与 `/assets/*` 的服务
+- `svelte-dev` 只负责本地 app 源码、`/_node_modules/*` 与按目录名原样暴露的静态资源目录服务
 - 如果项目需要代理后端接口，应由项目自身的 dev 环境提供
 
 ### 3. builder 不再支持 app-local `package.json#imports` 与 watcher polling fallback
@@ -166,6 +166,45 @@ setLightTheme();
 - 主题切换现在位于 `svelte-lib/ui`
 - 主题切换通过写入根节点 CSS 变量实现
 - 当前不内置持久化、系统主题跟随或共享 theme store
+
+### 8. builder 静态资源配置从 `assetsDir` 改为 `assetsDirs`
+
+旧写法：
+
+```ts
+export default {
+  assetsDir: "assets"
+}
+```
+
+新写法：
+
+```ts
+export default {
+  assetsDirs: ["assets"]
+}
+```
+
+多目录写法：
+
+```ts
+export default {
+  assetsDirs: ["assets", "public"]
+}
+```
+
+说明：
+
+- `assetsDir` 已移除
+- `assetsDirs` 是唯一静态资源配置入口
+- 每个目录按目录名原样暴露
+- dev:
+  - `assets/ -> /assets/*`
+  - `public/ -> /public/*`
+- build:
+  - `<outDir>/assets/**`
+  - `<outDir>/public/**`
+- 若未配置 `assetsDirs`, builder 默认尝试 `["assets"]`; 若默认 `assets/` 不存在, 则按“没有静态资源目录”处理
 
 #### `Block`
 

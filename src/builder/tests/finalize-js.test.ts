@@ -21,7 +21,7 @@ const createHashedJsFileName = (content: string, extension: ".js"): string => {
         throw new Error(`Unexpected extension: ${extension}`);
     }
 
-    return `${new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, 16)}${extension}`;
+    return `${new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, 8)}${extension}`;
 };
 
 test("finalizeJavaScriptAssets returns a hashed file for a single entry asset", async () => {

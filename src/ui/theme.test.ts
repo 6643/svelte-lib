@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 
-const loadThemeModule = async (): Promise<typeof import("../theme.ts")> =>
-    import(new URL(`../theme.ts?test=${Date.now()}-${Math.random()}`, import.meta.url).href) as Promise<
-        typeof import("../theme.ts")
+const loadThemeModule = async (): Promise<typeof import("./theme.ts")> =>
+    import(new URL(`./theme.ts?test=${Date.now()}-${Math.random()}`, import.meta.url).href) as Promise<
+        typeof import("./theme.ts")
     >;
 
 const previousDocument = globalThis.document;

@@ -95,3 +95,17 @@ bun /._/svelte-lib/src/builder/dev.ts
 svelte-build
 svelte-dev
 ```
+
+## 测试布局
+
+当前仓库的测试布局规则是：
+
+- `src/use/` 这类小而单一的 hook / 工具，测试默认贴源码放，例如 `foo.ts` 对应 `foo.test.ts`
+- `src/ui/`、`src/route/`、`src/builder/` 这类需要 fixture、browser 条件、编译辅助或更复杂行为分层的模块，测试默认集中放在各自的 `tests/` 目录；只有像 `theme.ts` 这种小而单一、无需共享测试基建的纯工具例外，才允许贴源码放
+- 根 `tests/` 只保留仓库级、包级和公开 API 契约测试
+
+收口原则：
+
+- 默认就近
+- 为边界拆分，不为形式拆分
+- 只有在环境、契约层级或行为边界明显独立时，才额外建立单独测试文件

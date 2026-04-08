@@ -9,7 +9,7 @@ import { deserialize } from "node:v8";
 import type { BuildConfig, BunPlugin } from "bun";
 import { compile } from "svelte/compiler";
 import { createBootstrapSource, createImportPath } from "./bootstrap";
-import { copyConfiguredAssets, resolveConfiguredAssetsDir } from "./assets";
+import { copyConfiguredAssets, resolveConfiguredAssetsDirs } from "./assets";
 import { finalizeMergedCssAsset } from "./finalize-css";
 import { finalizeJavaScriptAssets, type FinalJavaScriptAsset } from "./finalize-js";
 import {
@@ -40,7 +40,7 @@ export type BuildArtifacts = {
 export type BuildSvelteOptions = {
     appTitle?: string;
     appComponent?: string;
-    assetsDir?: string;
+    assetsDirs?: string[];
     mountId?: string;
     outDir?: string;
     port?: number;
@@ -62,7 +62,7 @@ export const DEFAULT_HTML_SHELL: HtmlShell = {
     lang: "en",
     title: "Svelte Builder",
 };
-const FINAL_HASH_HEX_LENGTH = 16;
+const FINAL_HASH_HEX_LENGTH = 8;
 const MAX_JS_HASH_STABILIZATION_PASSES = 32;
 const STAGE_OUTDIR_NAME = ".bsp-stage";
 const TEMP_OUTDIR_NAME = "bsp-out";
@@ -72,7 +72,7 @@ const LOAD_CONFIG_RUNNER_PATH = join(dirname(fileURLToPath(import.meta.url)), "l
 const SUPPORTED_CONFIG_FIELDS = [
     "appComponent",
     "appTitle",
-    "assetsDir",
+    "assetsDirs",
     "mountId",
     "outDir",
     "port",
@@ -272,13 +272,16 @@ const readOptionalStringField = (config: Record<string, unknown>, field: string)
     return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected string.`);
 };
 
-const readOptionalAssetsDirField = (config: Record<string, unknown>, field: string): Result<string | undefined> => {
-    const assetsDir = readOptionalStringField(config, field);
-    if (!assetsDir.ok) {
-        return assetsDir;
+const readOptionalAssetsDirsField = (config: Record<string, unknown>, field: string): Result<string[] | undefined> => {
+    if (!hasOwnProperty(config, field) || config[field] === undefined) {
+        return ok(undefined);
     }
 
-    return ok(assetsDir.value);
+    if (Array.isArray(config[field]) && config[field].every((entry) => typeof entry === "string")) {
+        return ok(config[field] as string[]);
+    }
+
+    return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected string array.`);
 };
 
 const readOptionalAppComponentField = (config: Record<string, unknown>, field: string): Result<string | undefined> => {
@@ -570,9 +573,13 @@ const parseBuildConfig = (value: unknown, configFileName = CONFIG_FILE_NAME): Re
         return appComponent;
     }
 
-    const assetsDir = readOptionalAssetsDirField(value, "assetsDir");
-    if (!assetsDir.ok) {
-        return assetsDir;
+    if (hasOwnProperty(value, "assetsDir")) {
+        return fail(`Unknown field in ${configFileName}: assetsDir.`);
+    }
+
+    const assetsDirs = readOptionalAssetsDirsField(value, "assetsDirs");
+    if (!assetsDirs.ok) {
+        return assetsDirs;
     }
 
     const outDir = readOptionalStringField(value, "outDir");
@@ -608,7 +615,7 @@ const parseBuildConfig = (value: unknown, configFileName = CONFIG_FILE_NAME): Re
     return ok({
         appTitle: appTitle.value,
         appComponent: appComponent.value,
-        assetsDir: assetsDir.value,
+        assetsDirs: assetsDirs.value,
         mountId: normalizedMountId.value,
         outDir: outDir.value,
         port: port.value,
@@ -1226,13 +1233,13 @@ export const buildSvelte = async (options: BuildSvelteOptions = {}): Promise<Res
     }
     const appTitle = options.appTitle ?? DEFAULT_HTML_SHELL.title;
     const buildNonce = createBuildNonce();
-    const assetsDir = await resolveConfiguredAssetsDir(rootDir, options.assetsDir, "assets");
+    const assetsDirs = await resolveConfiguredAssetsDirs(rootDir, options.assetsDirs, "assets");
     const stripSvelteDiagnostics = options.stripSvelteDiagnostics ?? true;
     let lockPath: string | null = null;
     let published = false;
 
-    if (!assetsDir.ok) {
-        return fail(assetsDir.error);
+    if (!assetsDirs.ok) {
+        return fail(assetsDirs.error);
     }
 
     const validatedOutDir = validateOutDir(rootDir, outDir, appSourceRoot.value);
@@ -1351,9 +1358,9 @@ export const buildSvelte = async (options: BuildSvelteOptions = {}): Promise<Res
             return htmlFile;
         }
 
-        if (assetsDir.value !== undefined) {
-            const assetsOutDir = join(tempOutDir, "assets");
-            const copiedAssets = await copyConfiguredAssets(assetsDir.value, assetsOutDir);
+        for (const assetsDir of assetsDirs.value) {
+            const assetsOutDir = join(tempOutDir, assetsDir.dirName);
+            const copiedAssets = await copyConfiguredAssets(assetsDir.physicalPath, assetsOutDir);
             if (!copiedAssets.ok) {
                 return fail(copiedAssets.error);
             }

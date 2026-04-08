@@ -16,7 +16,7 @@ const config: BuildSvelteOptions = {
     // Production build output directory
     // outDir: "dist",
     // Static assets directory (served at / in dev, copied to dist in build)
-    // assetsDir: "public",
+    // assetsDirs: ["assets", "public"],
     // Dev server port
     // port: 3000,
     // Include sourcemaps in production build

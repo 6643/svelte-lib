@@ -2,6 +2,10 @@ import { copyFile, mkdir, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+export type ResolvedAssetsDir = {
+    dirName: string;
+    physicalPath: string;
+};
 
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 
@@ -46,9 +50,9 @@ const resolvePhysicalChildPath = async (path: string): Promise<Result<string>> =
     return ok(join(physicalParent.value, basename(path)));
 };
 
-export const resolveConfiguredAssetsDir = async (
+const resolveConfiguredAssetsDir = async (
     rootDir: string,
-    assetsDir?: string,
+    assetsDir: string | undefined,
     defaultAssetsDir?: string,
 ): Promise<Result<string | undefined>> => {
     const configuredAssetsDir = assetsDir ?? defaultAssetsDir;
@@ -87,7 +91,7 @@ export const resolveConfiguredAssetsDir = async (
     }
 
     if (!info.value.isDirectory()) {
-        return fail(`Configured assetsDir is not a directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
+        return fail(`Configured assetsDirs entry is not a directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
     }
 
     const physicalDir = await resolvePhysicalPath(resolvedDir);
@@ -96,6 +100,66 @@ export const resolveConfiguredAssetsDir = async (
     }
 
     return ok(physicalDir.value);
+};
+
+export const resolveConfiguredAssetsDirs = async (
+    rootDir: string,
+    assetsDirs?: string[],
+    defaultAssetsDir = "assets",
+): Promise<Result<ResolvedAssetsDir[]>> => {
+    if (assetsDirs === undefined) {
+        const defaultDir = await resolveConfiguredAssetsDir(rootDir, undefined, defaultAssetsDir);
+        if (!defaultDir.ok) {
+            return defaultDir;
+        }
+
+        if (defaultDir.value === undefined) {
+            return ok([]);
+        }
+
+        return ok([
+            {
+                dirName: basename(defaultDir.value),
+                physicalPath: defaultDir.value,
+            },
+        ]);
+    }
+
+    const configuredAssetsDirs = assetsDirs;
+    if (!Array.isArray(configuredAssetsDirs)) {
+        return fail("Invalid assetsDirs in builder.ts: expected string array.");
+    }
+
+    const resolvedEntries: ResolvedAssetsDir[] = [];
+    const seenDirNames = new Set<string>();
+
+    for (const configuredAssetsDir of configuredAssetsDirs) {
+        if (typeof configuredAssetsDir !== "string") {
+            return fail("Invalid assetsDirs in builder.ts: expected string array.");
+        }
+
+        const resolvedDir = await resolveConfiguredAssetsDir(rootDir, configuredAssetsDir);
+        if (!resolvedDir.ok) {
+            return resolvedDir;
+        }
+
+        if (resolvedDir.value === undefined) {
+            continue;
+        }
+
+        const dirName = basename(resolvedDir.value);
+        if (seenDirNames.has(dirName)) {
+            return fail(`Duplicate assets directory name in builder.ts: ${dirName}`);
+        }
+
+        seenDirNames.add(dirName);
+        resolvedEntries.push({
+            dirName,
+            physicalPath: resolvedDir.value,
+        });
+    }
+
+    return ok(resolvedEntries);
 };
 
 const copyDirectoryContents = async (sourceDir: string, destinationDir: string): Promise<Result<void>> => {

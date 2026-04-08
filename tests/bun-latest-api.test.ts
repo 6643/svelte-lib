@@ -95,6 +95,19 @@ test("builder README no longer documents app-local package imports or watcher po
     expect(source.includes("isRecoverableDevWatcherSetupError")).toBe(false);
 });
 
+test("builder docs describe assetsDirs as the only static assets config", () => {
+    const readme = readRepoFile("src/builder/README.md");
+    const migration = readRepoFile("docs/migrations/2026-04-latest-svelte5-migration.md");
+
+    expect(readme.includes("`assetsDirs`")).toBe(true);
+    expect(readme.includes("`assetsDir`")).toBe(false);
+    expect(readme.includes("builder.ts")).toBe(true);
+
+    expect(migration.includes("assetsDirs")).toBe(true);
+    expect(migration.includes("assetsDir")).toBe(true);
+    expect(migration.includes("已移除")).toBe(true);
+});
+
 test("tests use Svelte's public client API instead of internal source paths", () => {
     const files = [
         "src/route/tests/route-component.test.ts",
@@ -186,6 +199,14 @@ test("ui and route tests stay with their owning projects", () => {
     for (const path of removedPaths) {
         expect(existsSync(resolve(repoRoot, path))).toBe(false);
     }
+});
+
+test("README documents the repository test layout policy", () => {
+    const readme = readRepoFile("README.md");
+
+    expect(readme.includes("## 测试布局")).toBe(true);
+    expect(readme.includes("默认就近")).toBe(true);
+    expect(readme.includes("根 `tests/` 只保留仓库级、包级和公开 API 契约测试")).toBe(true);
 });
 
 test("targeted public components no longer use slot markup or on: directives", () => {

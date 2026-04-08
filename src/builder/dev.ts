@@ -18,7 +18,7 @@ import {
     validateResolvedAppComponentPath,
 } from "./build";
 import { createBootstrapSource, createImportPath, resolveConfiguredPath } from "./bootstrap";
-import { resolveConfiguredAssetsDir, resolvePhysicalAssetPath } from "./assets";
+import { resolveConfiguredAssetsDirs, resolvePhysicalAssetPath, type ResolvedAssetsDir } from "./assets";
 import { formatAssetReport } from "./report";
 import {
     isSupportedJavaScriptSourceModule,
@@ -47,7 +47,7 @@ export type DevCliDependencies = {
 type DevRuntimeState = {
     appComponentPath: string;
     appTitle: string;
-    assetsDir: string | undefined;
+    assetsDirs: ResolvedAssetsDir[];
     mountId: string;
     sourcePathPrefix: string | undefined;
     sourceRoot: string;
@@ -93,7 +93,7 @@ const createMethodNotAllowedResponse = (): Response =>
     });
 const normalizeModulePath = (value: string): string => value.replace(/\\/g, "/");
 const DEV_LIVE_RELOAD_PATH = "/___live_reload";
-const DEV_INTERNAL_PATH_PREFIXES = ["/_node_modules/", "/_virtual/", "/assets/"] as const;
+const DEV_INTERNAL_PATH_PREFIXES = ["/_node_modules/", "/_virtual/"] as const;
 
 const createDevLiveReloadScript = (): string =>
     [
@@ -513,7 +513,7 @@ const resolveDevSourceRoot = (rootDir: string, appComponentPath: string): string
 
 export const resolveDevWatchRoots = (
     rootDir: string,
-    assetsDir: string | undefined,
+    assetsDirs: ResolvedAssetsDir[],
     appComponentPath: string,
 ): DevWatchRoot[] => {
     const sourceRoot = resolveDevSourceRoot(rootDir, appComponentPath);
@@ -530,9 +530,7 @@ export const resolveDevWatchRoots = (
 
     addRoot(rootDir, false);
     addRoot(sourceRoot, true);
-    if (assetsDir !== undefined) {
-        addRoot(assetsDir, true);
-    }
+    assetsDirs.forEach((assetsDir) => addRoot(assetsDir.physicalPath, true));
 
     return Array.from(roots.values()).sort(
         (left, right) => Number(left.recursive) - Number(right.recursive) || left.path.localeCompare(right.path),
@@ -1039,20 +1037,41 @@ const deriveDevRuntimeState = async (config: BuildSvelteOptions, cwd = process.c
         return validatedRuntimeAliases;
     }
 
-    const assetsDir = await resolveConfiguredAssetsDir(rootDir, config.assetsDir, "assets");
-    if (!assetsDir.ok) {
-        return assetsDir;
+    const assetsDirs = await resolveConfiguredAssetsDirs(rootDir, config.assetsDirs, "assets");
+    if (!assetsDirs.ok) {
+        return assetsDirs;
     }
 
     return ok({
         appComponentPath,
         appTitle,
-        assetsDir: assetsDir.value,
+        assetsDirs: assetsDirs.value,
         mountId,
         sourcePathPrefix: createSourcePathPrefix(rootDir, sourceRoot.value),
         sourceRoot: sourceRoot.value,
-        watchRoots: resolveDevWatchRoots(rootDir, assetsDir.value, appComponentPath),
+        watchRoots: resolveDevWatchRoots(rootDir, assetsDirs.value, appComponentPath),
     });
+};
+
+const resolveDevStaticAssetRequest = (
+    assetsDirs: ResolvedAssetsDir[],
+    pathname: string,
+): { physicalRoot: string; requestedPath: string } | null => {
+    const segments = pathname.split("/").filter((segment) => segment.length > 0);
+    const [dirName, ...pathSegments] = segments;
+    if (!dirName || pathSegments.length === 0) {
+        return null;
+    }
+
+    const matchingAssetsDir = assetsDirs.find((entry) => entry.dirName === dirName);
+    if (!matchingAssetsDir) {
+        return null;
+    }
+
+    return {
+        physicalRoot: matchingAssetsDir.physicalPath,
+        requestedPath: pathSegments.join("/"),
+    };
 };
 
 const createImportMap = () => ({
@@ -1285,17 +1304,12 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
                 });
             }
 
-            if (url.pathname.startsWith("/assets/")) {
-                if (currentState.assetsDir === undefined) {
-                    return new Response("Not Found", { status: 404 });
-                }
-
-                const requestedPath = url.pathname.slice("/assets/".length);
-                if (requestedPath.length === 0) {
-                    return new Response("Not Found", { status: 404 });
-                }
-
-                const resolvedAssetPath = await resolvePhysicalAssetPath(currentState.assetsDir, requestedPath);
+            const staticAssetRequest = resolveDevStaticAssetRequest(currentState.assetsDirs, url.pathname);
+            if (staticAssetRequest) {
+                const resolvedAssetPath = await resolvePhysicalAssetPath(
+                    staticAssetRequest.physicalRoot,
+                    staticAssetRequest.requestedPath,
+                );
                 if (!resolvedAssetPath.ok) {
                     return new Response("Not Found", { status: 404 });
                 }

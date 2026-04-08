@@ -125,3 +125,37 @@ test("loadSvelteConfig accepts mountId values that are valid DOM ids but not CSS
 
     expect(result.value.mountId).toBe("app:root");
 });
+
+test("loadSvelteConfig accepts assetsDirs arrays", async () => {
+    const rootDir = await createTempProject(`
+        export default {
+            assetsDirs: ["assets", "public"]
+        };
+    `);
+
+    const result = await loadSvelteConfig(rootDir);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+        throw new Error(result.error);
+    }
+
+    expect(result.value.assetsDirs).toEqual(["assets", "public"]);
+});
+
+test("loadSvelteConfig rejects legacy assetsDir", async () => {
+    const rootDir = await createTempProject(`
+        export default {
+            assetsDir: "assets"
+        };
+    `);
+
+    const result = await loadSvelteConfig(rootDir);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+        throw new Error("Expected assetsDir to be rejected");
+    }
+
+    expect(result.error.includes("assetsDir")).toBe(true);
+});

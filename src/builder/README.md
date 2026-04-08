@@ -4,7 +4,7 @@
 
 当前仓库本身就是发布包源码仓库, 不是 monorepo 内的子包。README 中的路径、命令和配置说明都以仓库根目录为准。
 
-它保留独立项目形态, 包含 `src/`、`assets/` 和 `builder.ts`。入口由构建器根据 `appComponent` 自动生成, 不再需要手写 `main.ts`。
+它保留独立项目形态, 包含 `src/`、若干静态资源目录和 `builder.ts`。入口由构建器根据 `appComponent` 自动生成, 不再需要手写 `main.ts`。
 
 统一配置文件名是 `builder.ts`。
 
@@ -47,7 +47,7 @@ dev 源码边界：
 | `appComponent` | `"src/App.svelte"` | SPA 根组件, build/dev 都会据此生成内部启动代码 |
 | `mountId` | `"app"` | 只支持 DOM `id`, build/dev 都会把它写进内置 shell |
 | `appTitle` | `"Svelte Builder"` | 内置 shell 的 `<title>` |
-| `assetsDir` | `"assets"` | 可选静态资源目录, dev 直接读, build 复制到 `dist/assets/` |
+| `assetsDirs` | `["assets"]` | 可选静态资源目录数组, 每个目录按目录名原样暴露; 若默认 `assets/` 不存在则视为无静态资源目录 |
 | `outDir` | `"dist"` | 生产输出目录, 必须是项目根内的独立目录, 不能指向项目根或落在 app 源码树内 |
 | `port` | `3000` | 开发服务器监听端口 |
 | `sourcemap` | `false` | 生产构建是否输出内联 sourcemap |
@@ -64,16 +64,16 @@ export default {
 
 `appComponent` 不配置时默认就是 `src/App.svelte`。
 
-`assetsDir` 是可选配置:
+`assetsDirs` 是可选配置:
 
 ```ts
 export default {
-    assetsDir: "assets",
+    assetsDirs: ["assets", "public"],
     appTitle: "Svelte Builder",
 };
 ```
 
-`assetsDir` 不配置时默认就是 `assets`。若默认 `assets/` 不存在, builder 会按“当前项目没有静态资源目录”处理; 若显式配置了 `assetsDir`, 但目标目录不存在, 会直接报错。
+`assetsDirs` 不配置时默认尝试 `["assets"]`。若默认 `assets/` 不存在, builder 会按“当前项目没有静态资源目录”处理。数组中的每一项都必须是项目根内的目录, 并且目录名唯一。
 
 `stripSvelteDiagnostics` 是可选配置:
 
@@ -95,15 +95,16 @@ export default {
 src/
   App.svelte
 assets/
+public/
 builder.ts
 ```
 
-静态资源语义固定为 `/assets/*`:
+静态资源语义固定为“按目录名原样暴露”:
 
-- dev: 直接从 `<rootDir>/<assetsDir>/*` 读取
-- build: 原样复制到 `<outDir>/assets/*`
+- dev: 例如 `assets/` 暴露为 `/assets/*`, `public/` 暴露为 `/public/*`
+- build: 原样复制到 `<outDir>/assets/*`, `<outDir>/public/*`
 - 不参与 hash, 不改名, 不注入到入口产物报告
-- 示例页面当前直接引用 `/assets/panel-mark.svg`
+- 目录名由配置目录本身决定, 不做额外 mount 映射
 
 构建输出示例：
 
@@ -112,10 +113,10 @@ builder.ts
 ```text
 Entry assets
 
-File                     Size     Gzip
-f35ba27158e87d2b.js   4.1 KiB  1.9 KiB
-d0c5e18487a809dd.css  4.6 KiB  1.4 KiB
-index.html              274 B    217 B
+File                 Size     Gzip
+f35ba271.js       4.1 KiB  1.9 KiB
+d0c5e184.css      4.6 KiB  1.4 KiB
+index.html          274 B    217 B
 ```
 
 - `bun dev`
@@ -137,11 +138,11 @@ src/lazy/ButtonDemo.svelte   2026-03-18 11:11:11  4.1 KiB  1.9 KiB
 
 安全注意事项：
 
-- 配置文件固定为 `builder.ts`, 它通过默认导出提供构建配置
+- 配置文件固定为 `builder.ts`, 它通过默认导出提供构建配置, 同时也是项目根目录与所有默认值的唯一锚点
 - `builder.ts` 会作为模块直接执行, 然后读取它的默认导出; 只应在可信项目里运行, 不要把它当成纯声明式配置文件
 - 旧的 `svelte-builder.config.json` 已不再支持; 若项目中仍存在该文件, 请迁移并重命名为 `builder.ts`
 - 开发服务器的设计目标是本地开发, 不应当作为公网服务暴露; 当前 HTTP 500 响应会对客户端隐藏内部错误细节, 但控制台仍会输出完整异常, 方便本地排查
-- 开发服务器只暴露受控 app 源码树、`/_node_modules/*` 和 `/assets/*`, 并对路径穿越与符号链接逃逸做了边界校验, 但这不等于适合承载不可信访问流量
+- 开发服务器只暴露受控 app 源码树、`/_node_modules/*` 和各静态资源目录对应的 URL 前缀, 并对路径穿越与符号链接逃逸做了边界校验, 但这不等于适合承载不可信访问流量
 - 若当前环境里的 `fs.watch` 不可用, 开发服务器会直接输出 watcher 错误; 当前不再内置 polling fallback
 - 若要部署到生产环境, 建议在反向代理或静态托管层补充安全响应头, 至少包括 `Content-Security-Policy`、`X-Content-Type-Options: nosniff` 和合适的 `Referrer-Policy`
 
