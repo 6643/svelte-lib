@@ -369,9 +369,10 @@ test("builder README no longer points readers at a removed top-level demo app", 
 
 test("builder dev runtime logs use the published dev command name", () => {
     const devSource = readRepoFile("src/builder/dev.ts");
+    const reloadSource = readRepoFile("src/builder/dev-reload.ts");
 
     expect(devSource.includes("[svelte-builder]")).toBe(false);
-    expect(devSource.includes("[svelte-dev]")).toBe(true);
+    expect(devSource.includes("[svelte-dev]") || reloadSource.includes("[svelte-dev]")).toBe(true);
 });
 
 test("root README no longer documents a removed top-level demo app", () => {

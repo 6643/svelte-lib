@@ -1,23 +1,31 @@
 #!/usr/bin/env bun
 
-import { randomUUID } from "node:crypto";
-import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { deserialize } from "node:v8";
 import type { BuildConfig, BunPlugin } from "bun";
 import { compile } from "svelte/compiler";
 import { createBootstrapSource, createImportPath } from "./bootstrap";
+import {
+    CONFIG_FILE_NAME,
+    defineSvelteConfig,
+    loadSvelteConfig,
+    type BuildSvelteOptions,
+    validateAppComponent,
+    validateMountId,
+} from "./build-config";
 import { copyConfiguredAssets, resolveConfiguredAssetsDirs } from "./assets";
+import {
+    resolveAppSourceRoot,
+    resolveSvelteBrowserImportPath,
+    validateLocalSourceImportGraph,
+    validateResolvedAppComponentPath,
+    validateSvelteBrowserImportAliases,
+} from "./build-validate";
+import { acquirePublishLock, createBuildNonce, createStageDir, createTempOutDir, publishBuildOutput } from "./build-publish";
 import { finalizeMergedCssAsset } from "./finalize-css";
 import { finalizeJavaScriptAssets, type FinalJavaScriptAsset } from "./finalize-js";
-import {
-    formatSupportedLocalSourceModuleExtensions,
-    isSupportedLocalSourceModule,
-    isSupportedSvelteSourceModule,
-    isSupportedTypeScriptSourceModule,
-} from "./source-modules";
 import { formatBuildReport } from "./report";
 import { stripSvelteDiagnosticsModule } from "./strip-svelte-diagnostics";
 
@@ -37,18 +45,6 @@ export type BuildArtifacts = {
     outDir: string;
 };
 
-export type BuildSvelteOptions = {
-    appTitle?: string;
-    appComponent?: string;
-    assetsDirs?: string[];
-    mountId?: string;
-    outDir?: string;
-    port?: number;
-    rootDir?: string;
-    stripSvelteDiagnostics?: boolean;
-    sourcemap?: boolean;
-};
-
 export type BuildCliDependencies = {
     cwd?: string;
     error?: (message: string) => void;
@@ -57,6 +53,16 @@ export type BuildCliDependencies = {
     run?: (cwd: string) => Promise<Result<BuildArtifacts>>;
 };
 
+export { defineSvelteConfig, loadSvelteConfig } from "./build-config";
+export type { BuildSvelteOptions } from "./build-config";
+export {
+    resolveAppSourceRoot,
+    resolveSvelteBrowserImportPath,
+    validateLocalSourceImportGraph,
+    validateResolvedAppComponentPath,
+    validateSvelteBrowserImportAliases,
+} from "./build-validate";
+
 export const DEFAULT_HTML_SHELL: HtmlShell = {
     appHtml: '<main id="app"></main>',
     lang: "en",
@@ -64,23 +70,6 @@ export const DEFAULT_HTML_SHELL: HtmlShell = {
 };
 const FINAL_HASH_HEX_LENGTH = 8;
 const MAX_JS_HASH_STABILIZATION_PASSES = 32;
-const STAGE_OUTDIR_NAME = ".bsp-stage";
-const TEMP_OUTDIR_NAME = "bsp-out";
-const RELEASES_DIR_NAME = ".bsp-releases";
-const CONFIG_FILE_NAME = "builder.ts";
-const LOAD_CONFIG_RUNNER_PATH = join(dirname(fileURLToPath(import.meta.url)), "load-config-runner.ts");
-const SUPPORTED_CONFIG_FIELDS = [
-    "appComponent",
-    "appTitle",
-    "assetsDirs",
-    "mountId",
-    "outDir",
-    "port",
-    "rootDir",
-    "sourcemap",
-    "stripSvelteDiagnostics",
-] as const;
-
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 
 const fail = (error: string): Result<never> => ({ ok: false, error });
@@ -244,11 +233,6 @@ const escapeHtml = (value: string): string =>
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 
-const hasOwnProperty = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === "object" && value !== null && !Array.isArray(value);
-
 const isPathWithinRoot = (rootPath: string, candidatePath: string): boolean => {
     const relativePath = relative(rootPath, candidatePath);
 
@@ -258,279 +242,6 @@ const isPathWithinRoot = (rootPath: string, candidatePath: string): boolean => {
 const resolveConfiguredPath = (rootDir: string, value: string | undefined, fallback: string): string => {
     const target = value ?? fallback;
     return isAbsolute(target) ? target : join(rootDir, target);
-};
-
-const readOptionalStringField = (config: Record<string, unknown>, field: string): Result<string | undefined> => {
-    if (!hasOwnProperty(config, field) || config[field] === undefined) {
-        return ok(undefined);
-    }
-
-    if (typeof config[field] === "string") {
-        return ok(config[field]);
-    }
-
-    return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected string.`);
-};
-
-const readOptionalAssetsDirsField = (config: Record<string, unknown>, field: string): Result<string[] | undefined> => {
-    if (!hasOwnProperty(config, field) || config[field] === undefined) {
-        return ok(undefined);
-    }
-
-    if (Array.isArray(config[field]) && config[field].every((entry) => typeof entry === "string")) {
-        return ok(config[field] as string[]);
-    }
-
-    return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected string array.`);
-};
-
-const readOptionalAppComponentField = (config: Record<string, unknown>, field: string): Result<string | undefined> => {
-    const appComponent = readOptionalStringField(config, field);
-    if (!appComponent.ok) {
-        return appComponent;
-    }
-
-    return ok(appComponent.value ?? "src/App.svelte");
-};
-
-const readOptionalNumberField = (config: Record<string, unknown>, field: string): Result<number | undefined> => {
-    if (!hasOwnProperty(config, field) || config[field] === undefined) {
-        return ok(undefined);
-    }
-
-    if (typeof config[field] === "number" && Number.isInteger(config[field]) && config[field] >= 0) {
-        return ok(config[field]);
-    }
-
-    return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected non-negative integer.`);
-};
-
-const readOptionalBooleanField = (config: Record<string, unknown>, field: string): Result<boolean | undefined> => {
-    if (!hasOwnProperty(config, field) || config[field] === undefined) {
-        return ok(undefined);
-    }
-
-    if (typeof config[field] === "boolean") {
-        return ok(config[field]);
-    }
-
-    return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected boolean.`);
-};
-
-const isValidMountId = (mountId: string): boolean => !/\s/u.test(mountId) && !mountId.startsWith("#");
-
-const validateMountId = (value: unknown, field: string): Result<string> => {
-    if (value !== undefined && typeof value !== "string") {
-        return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected string.`);
-    }
-
-    const mountId = value ?? "app";
-    const normalizedMountId = mountId.trim();
-
-    if (normalizedMountId.length === 0) {
-        return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a non-empty id token.`);
-    }
-
-    if (normalizedMountId !== mountId) {
-        return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a plain id token, not a selector-shaped value.`);
-    }
-
-    if (!isValidMountId(normalizedMountId)) {
-        return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a plain id token, not a selector-shaped value.`);
-    }
-
-    return ok(normalizedMountId);
-};
-
-const validateAppComponent = (value: unknown, field: string): Result<string> => {
-    if (value !== undefined && typeof value !== "string") {
-        return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected string.`);
-    }
-
-    const appComponent = value ?? "src/App.svelte";
-    const normalizedAppComponent = appComponent.trim();
-
-    if (normalizedAppComponent.length === 0) {
-        return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a non-empty component path.`);
-    }
-
-    if (normalizedAppComponent !== appComponent) {
-        return fail(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a plain component path, not a whitespace-padded value.`);
-    }
-
-    return ok(normalizedAppComponent);
-};
-
-export const resolveAppSourceRoot = (
-    rootDir: string,
-    appComponentPath: string,
-    configFileName = CONFIG_FILE_NAME,
-): Result<string> => {
-    const appComponentRelativeToRoot = relative(rootDir, appComponentPath);
-    if (appComponentRelativeToRoot.startsWith("..") || isAbsolute(appComponentRelativeToRoot)) {
-        return fail(`Invalid appComponent in ${configFileName}: expected a path inside the project root.`);
-    }
-
-    const segments = appComponentRelativeToRoot.split(/[\\/]/).filter((segment) => segment.length > 0);
-    const [topLevelDir] = segments;
-
-    if (topLevelDir === undefined || segments.length <= 1) {
-        return fail(
-            `Invalid appComponent in ${configFileName}: expected a component path inside src/ or another top-level source directory.`,
-        );
-    }
-
-    return ok(topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir));
-};
-
-export const validateResolvedAppComponentPath = (
-    rootDir: string,
-    appSourceRoot: string,
-    appComponentPath: string,
-    configFileName = CONFIG_FILE_NAME,
-): Result<void> => {
-    try {
-        const realRootDir = realpathSync(rootDir);
-        const realSourceRoot = realpathSync(appSourceRoot);
-        const realAppComponentPath = realpathSync(appComponentPath);
-
-        if (!isPathWithinRoot(realRootDir, realSourceRoot) || !isPathWithinRoot(realSourceRoot, realAppComponentPath)) {
-            return fail(
-                `Invalid appComponent in ${configFileName}: expected the resolved component file to stay inside the app source tree.`,
-            );
-        }
-
-        return ok(undefined);
-    } catch (error) {
-        return fail(`Failed to resolve appComponent in ${configFileName}: ${getErrorMessage(error)}`);
-    }
-};
-
-const isPathWithinAnyRoot = (roots: string[], candidatePath: string): boolean =>
-    roots.some((rootPath) => isPathWithinRoot(rootPath, candidatePath));
-
-const resolveRelativeImportPath = async (specifier: string, importerPath: string): Promise<Result<string>> => {
-    const importerUrl = pathToFileURL(importerPath).href;
-
-    return Promise.resolve(import.meta.resolve(specifier, importerUrl)).then(
-        (resolvedUrl) => {
-            if (!resolvedUrl.startsWith("file://")) {
-                return fail(`Unsupported resolved import for ${specifier}: ${resolvedUrl}`);
-            }
-
-            return ok(fileURLToPath(resolvedUrl));
-        },
-        (error) => fail(`Failed to resolve ${specifier} from ${importerPath}: ${getErrorMessage(error)}`),
-    );
-};
-
-const buildImportScanner = new Bun.Transpiler({ loader: "js" });
-const buildTypeScriptTranspiler = new Bun.Transpiler({ loader: "ts" });
-
-const loadImportValidationSource = async (path: string): Promise<Result<string>> => {
-    if (isSupportedSvelteSourceModule(path)) {
-        const compiled = await compileSvelteModule(path);
-        if (!compiled.ok) {
-            return fail(compiled.error);
-        }
-
-        return ok(compiled.value.js);
-    }
-
-    const source = await readRequiredText(path);
-    if (!source.ok) {
-        return source;
-    }
-
-    if (isSupportedTypeScriptSourceModule(path)) {
-        return Promise.resolve()
-            .then(() => ok(buildTypeScriptTranspiler.transformSync(source.value)))
-            .catch((error) => fail(`Failed to transpile ${path}: ${getErrorMessage(error)}`));
-    }
-
-    return ok(source.value);
-};
-
-export const validateLocalSourceImportGraph = async (entryPath: string, allowedRoots: string[]): Promise<Result<void>> => {
-    const pending = [entryPath];
-    const visited = new Set<string>();
-
-    while (pending.length > 0) {
-        const currentPath = pending.pop();
-        if (currentPath === undefined) {
-            break;
-        }
-
-        const resolvedCurrentPath = (() => {
-            try {
-                return realpathSync(currentPath);
-            } catch {
-                return currentPath;
-            }
-        })();
-        if (visited.has(resolvedCurrentPath)) {
-            continue;
-        }
-        visited.add(resolvedCurrentPath);
-
-        const source = await loadImportValidationSource(currentPath);
-        if (!source.ok) {
-            return source;
-        }
-
-        if (findUnsupportedDynamicImportExpression(source.value).unsupported) {
-            return fail(`Dynamic import expressions are not supported in app source tree: ${currentPath}`);
-        }
-
-        const specifiers = Array.from(
-            new Set(
-                buildImportScanner
-                    .scanImports(source.value)
-                    .map((record) => record.path)
-                    .filter(
-                        (specifier) =>
-                            isRelativeImportSpecifier(specifier) || isLocalFileImportSpecifier(specifier) || isPackageImportSpecifier(specifier),
-                    ),
-            ),
-        );
-
-        for (const specifier of specifiers) {
-            if (isLocalFileImportSpecifier(specifier)) {
-                return fail(`Local import escaped app source tree: ${specifier} from ${currentPath}`);
-            }
-
-            if (isPackageImportSpecifier(specifier)) {
-                return fail(`App-local package imports are not supported in app source tree: ${specifier} from ${currentPath}`);
-            }
-
-            const resolvedImport = await resolveRelativeImportPath(specifier, currentPath);
-            if (!resolvedImport.ok) {
-                return resolvedImport;
-            }
-
-            const resolvedImportPath = (() => {
-                try {
-                    return realpathSync(resolvedImport.value);
-                } catch {
-                    return resolvedImport.value;
-                }
-            })();
-
-            if (!isPathWithinAnyRoot(allowedRoots, resolvedImportPath)) {
-                return fail(`Local import escaped app source tree: ${specifier} from ${currentPath}`);
-            }
-
-            if (!isSupportedLocalSourceModule(resolvedImport.value)) {
-                return fail(
-                    `Unsupported local source module in app source tree: ${specifier} from ${currentPath}. Supported module extensions: ${formatSupportedLocalSourceModuleExtensions()}.`,
-                );
-            }
-
-            pending.push(resolvedImport.value);
-        }
-    }
-
-    return ok(undefined);
 };
 
 const validateOutDir = (rootDir: string, outDir: string, appSourceRoot: string): Result<string> => {
@@ -547,82 +258,6 @@ const validateOutDir = (rootDir: string, outDir: string, appSourceRoot: string):
     return ok(outDir);
 };
 
-const parseBuildConfig = (value: unknown, configFileName = CONFIG_FILE_NAME): Result<BuildSvelteOptions> => {
-    if (!isRecord(value)) {
-        return fail(`Invalid ${configFileName}: expected a default-exported object config.`);
-    }
-
-    if (hasOwnProperty(value, "htmlTemplate")) {
-        return fail(`Invalid htmlTemplate in ${configFileName}: htmlTemplate is no longer supported.`);
-    }
-
-    const unknownField = Object.keys(value).find(
-        (field) => !SUPPORTED_CONFIG_FIELDS.includes(field as (typeof SUPPORTED_CONFIG_FIELDS)[number]),
-    );
-    if (unknownField !== undefined) {
-        return fail(`Unknown field in ${configFileName}: ${unknownField}.`);
-    }
-
-    const appTitle = readOptionalStringField(value, "appTitle");
-    if (!appTitle.ok) {
-        return appTitle;
-    }
-
-    const appComponent = readOptionalAppComponentField(value, "appComponent");
-    if (!appComponent.ok) {
-        return appComponent;
-    }
-
-    if (hasOwnProperty(value, "assetsDir")) {
-        return fail(`Unknown field in ${configFileName}: assetsDir.`);
-    }
-
-    const assetsDirs = readOptionalAssetsDirsField(value, "assetsDirs");
-    if (!assetsDirs.ok) {
-        return assetsDirs;
-    }
-
-    const outDir = readOptionalStringField(value, "outDir");
-    if (!outDir.ok) {
-        return outDir;
-    }
-
-    const mountId = readOptionalStringField(value, "mountId");
-    if (!mountId.ok) {
-        return mountId;
-    }
-
-    const normalizedMountId = validateMountId(mountId.value, "mountId");
-    if (!normalizedMountId.ok) {
-        return normalizedMountId;
-    }
-
-    const port = readOptionalNumberField(value, "port");
-    if (!port.ok) {
-        return port;
-    }
-
-    const sourcemap = readOptionalBooleanField(value, "sourcemap");
-    if (!sourcemap.ok) {
-        return sourcemap;
-    }
-
-    const stripSvelteDiagnostics = readOptionalBooleanField(value, "stripSvelteDiagnostics");
-    if (!stripSvelteDiagnostics.ok) {
-        return stripSvelteDiagnostics;
-    }
-
-    return ok({
-        appTitle: appTitle.value,
-        appComponent: appComponent.value,
-        assetsDirs: assetsDirs.value,
-        mountId: normalizedMountId.value,
-        outDir: outDir.value,
-        port: port.value,
-        stripSvelteDiagnostics: stripSvelteDiagnostics.value,
-        sourcemap: sourcemap.value,
-    });
-};
 
 export const createHtmlShell = (mountId: string, appTitle = DEFAULT_HTML_SHELL.title): HtmlShell => ({
     appHtml: `<main id="${escapeHtml(mountId)}"></main>`,
@@ -666,278 +301,6 @@ const prepareDir = async (path: string): Promise<Result<string>> => {
         () => ok(path),
         (error) => fail(`Failed to create ${path}: ${getErrorMessage(error)}`),
     );
-};
-
-const createBuildNonce = (): string => randomUUID().replace(/-/g, "");
-
-const createStageDirPrefix = (rootDir: string, outDir: string): string =>
-    `${STAGE_OUTDIR_NAME}-${createHex16Hash(relative(rootDir, outDir).replace(/\\/g, "/"))}`;
-
-const createStageDir = (rootDir: string, outDir: string, nonce: string): string =>
-    join(rootDir, `${createStageDirPrefix(rootDir, outDir)}-${nonce}`);
-
-const createTempOutDir = (outDir: string, nonce: string): string =>
-    join(dirname(outDir), `.${basename(outDir)}.${TEMP_OUTDIR_NAME}-${nonce}`);
-
-const createPublishLockPath = (outDir: string): string => `${outDir}.lock`;
-
-const createPendingPublishLockPath = (outDir: string, nonce: string): string =>
-    join(dirname(outDir), `.${basename(outDir)}.lock-${nonce}`);
-
-const createRollbackOutDirPrefix = (outDir: string): string => `.${basename(outDir)}.rollback-`;
-
-const createRollbackOutDir = (outDir: string, nonce: string): string =>
-    join(dirname(outDir), `${createRollbackOutDirPrefix(outDir)}${nonce}`);
-
-const createPublishLockOwnerPath = (lockPath: string): string => join(lockPath, "owner.json");
-
-const isPidAlive = (pid: number): boolean => {
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ESRCH") {
-            return false;
-        }
-
-        return true;
-    }
-};
-
-const resolveLegacyReleaseTarget = (rootDir: string, outDir: string): string | undefined => {
-    const releasesDir = join(rootDir, RELEASES_DIR_NAME);
-
-    try {
-        if (!lstatSync(outDir).isSymbolicLink()) {
-            return undefined;
-        }
-
-        const resolvedOutDir = realpathSync(outDir);
-        if (!isPathWithinRoot(releasesDir, resolvedOutDir) || resolvedOutDir === releasesDir) {
-            return undefined;
-        }
-
-        return resolvedOutDir;
-    } catch {
-        return undefined;
-    }
-};
-
-const cleanupLegacyReleaseTarget = async (rootDir: string, releaseTarget: string | undefined): Promise<void> => {
-    if (releaseTarget === undefined) {
-        return;
-    }
-
-    await rm(releaseTarget, { force: true, recursive: true }).catch(() => undefined);
-
-    const releasesDir = join(rootDir, RELEASES_DIR_NAME);
-    await readdir(releasesDir)
-        .then(async (entries) => {
-            if (entries.length === 0) {
-                await rm(releasesDir, { force: true, recursive: true }).catch(() => undefined);
-            }
-        })
-        .catch(() => undefined);
-};
-
-const pathExists = (path: string): boolean => {
-    try {
-        lstatSync(path);
-        return true;
-    } catch {
-        return false;
-    }
-};
-
-const cleanupRecoveredRollbackOutDirs = async (outDir: string): Promise<void> => {
-    const rollbackPrefix = createRollbackOutDirPrefix(outDir);
-    const outDirParent = dirname(outDir);
-
-    const rollbackDirs = await readdir(outDirParent)
-        .then((entries) =>
-            entries
-                .filter((entry) => entry.startsWith(rollbackPrefix))
-                .map((entry) => join(outDirParent, entry))
-                .sort((left, right) => {
-                    const leftMtime = (() => {
-                        try {
-                            return lstatSync(left).mtimeMs;
-                        } catch {
-                            return 0;
-                        }
-                    })();
-                    const rightMtime = (() => {
-                        try {
-                            return lstatSync(right).mtimeMs;
-                        } catch {
-                            return 0;
-                        }
-                    })();
-
-                    return rightMtime - leftMtime;
-                }),
-        )
-        .catch(() => []);
-
-    if (rollbackDirs.length === 0) {
-        return;
-    }
-
-    if (!pathExists(outDir)) {
-        const [restoreDir, ...staleDirs] = rollbackDirs;
-        if (restoreDir !== undefined) {
-            await rename(restoreDir, outDir).catch(() => undefined);
-        }
-
-        await Promise.all(staleDirs.map((dir) => rm(dir, { force: true, recursive: true }).catch(() => undefined)));
-        return;
-    }
-
-    await Promise.all(rollbackDirs.map((dir) => rm(dir, { force: true, recursive: true }).catch(() => undefined)));
-};
-
-const cleanupRecoveredBuildState = async (rootDir: string, outDir: string): Promise<void> => {
-    await cleanupLegacyReleaseTarget(rootDir, resolveLegacyReleaseTarget(rootDir, outDir));
-    await cleanupRecoveredRollbackOutDirs(outDir);
-
-    await readdir(rootDir)
-        .then((entries) =>
-            Promise.all(
-                entries
-                    .filter((entry) => entry.startsWith(`${createStageDirPrefix(rootDir, outDir)}-`))
-                    .map((entry) => rm(join(rootDir, entry), { force: true, recursive: true }).catch(() => undefined)),
-            ),
-        )
-        .catch(() => undefined);
-
-    await readdir(dirname(outDir))
-        .then((entries) =>
-            Promise.all(
-                entries
-                    .filter((entry) => entry.startsWith(`.${basename(outDir)}.${TEMP_OUTDIR_NAME}-`))
-                    .map((entry) => rm(join(dirname(outDir), entry), { force: true, recursive: true }).catch(() => undefined)),
-            ),
-        )
-        .catch(() => undefined);
-
-    await readdir(dirname(outDir))
-        .then((entries) =>
-            Promise.all(
-                entries
-                    .filter((entry) => entry.startsWith(`.${basename(outDir)}.lock-`))
-                    .map((entry) => rm(join(dirname(outDir), entry), { force: true, recursive: true }).catch(() => undefined)),
-            ),
-        )
-        .catch(() => undefined);
-};
-
-const acquirePublishLock = async (rootDir: string, outDir: string, allowRetry = true): Promise<Result<string>> => {
-    const lockPath = createPublishLockPath(outDir);
-    const pendingLockPath = createPendingPublishLockPath(outDir, createBuildNonce());
-    const ownerPath = createPublishLockOwnerPath(lockPath);
-    const pendingOwnerPath = createPublishLockOwnerPath(pendingLockPath);
-
-    const pendingLockReady = await mkdir(pendingLockPath).then(
-        () => ok(pendingLockPath),
-        (error) => fail(`Failed to create pending build lock ${pendingLockPath}: ${getErrorMessage(error)}`),
-    );
-    if (!pendingLockReady.ok) {
-        return pendingLockReady;
-    }
-
-    const pendingOwnerWritten = await writeFile(pendingOwnerPath, JSON.stringify({ pid: process.pid }), "utf8").then(
-        () => ok(pendingOwnerPath),
-        (error) => fail(`Failed to write build lock owner ${pendingOwnerPath}: ${getErrorMessage(error)}`),
-    );
-    if (!pendingOwnerWritten.ok) {
-        await rm(pendingLockPath, { force: true, recursive: true }).catch(() => undefined);
-        return pendingOwnerWritten;
-    }
-
-    return rename(pendingLockPath, lockPath).then(
-        () => ok(lockPath),
-        async (error: unknown) => {
-            await rm(pendingLockPath, { force: true, recursive: true }).catch(() => undefined);
-
-            if (!(error instanceof Error) || !("code" in error) || (error.code !== "EEXIST" && error.code !== "ENOTEMPTY")) {
-                return fail(`Failed to acquire build lock ${lockPath}: ${getErrorMessage(error)}`);
-            }
-
-            const owner = await readFile(ownerPath, "utf8").then(
-                (value) =>
-                    Promise.resolve(value)
-                        .then((text) => JSON.parse(text) as { pid?: unknown })
-                        .then(
-                            (parsed) =>
-                                typeof parsed.pid === "number" ? ok<number | null>(parsed.pid) : ok<number | null>(null),
-                            () => ok<number | null>(null),
-                        ),
-                () => ok<number | null>(null),
-            );
-            if (!owner.ok) {
-                return owner;
-            }
-
-            if (owner.value !== null && isPidAlive(owner.value)) {
-                return fail(`Another build is already running for ${outDir} (pid ${owner.value}).`);
-            }
-
-            if (!allowRetry) {
-                return fail(`Failed to recover stale build lock ${lockPath}.`);
-            }
-
-            await rm(lockPath, { force: true, recursive: true }).catch(() => undefined);
-            await cleanupRecoveredBuildState(rootDir, outDir);
-            return acquirePublishLock(rootDir, outDir, false);
-        },
-    );
-};
-
-const publishBuildOutput = async (rootDir: string, tempOutDir: string, outDir: string): Promise<Result<string>> => {
-    const legacyReleaseTarget = resolveLegacyReleaseTarget(rootDir, outDir);
-    const rollbackOutDir = createRollbackOutDir(outDir, createBuildNonce());
-    let movedExistingOutDir = false;
-
-    const movedExisting = await rename(outDir, rollbackOutDir).then(
-        () => {
-            movedExistingOutDir = true;
-            return ok<void>(undefined);
-        },
-        (error: unknown) => {
-            if (getErrorCode(error) === "ENOENT") {
-                return ok<void>(undefined);
-            }
-
-            return fail(`Failed to prepare ${outDir} for publish: ${getErrorMessage(error)}`);
-        },
-    );
-    if (!movedExisting.ok) {
-        return movedExisting;
-    }
-
-    const published = await rename(tempOutDir, outDir).then(
-        () => ok(outDir),
-        (error) => fail(`Failed to publish ${outDir}: ${getErrorMessage(error)}`),
-    );
-    if (!published.ok) {
-        if (movedExistingOutDir) {
-            const restored = await rename(rollbackOutDir, outDir).then(
-                () => ok(outDir),
-                (error) => fail(`Failed to restore previous output for ${outDir}: ${getErrorMessage(error)}`),
-            );
-            if (!restored.ok) {
-                return fail(`${published.error} ${restored.error}`);
-            }
-        }
-
-        return published;
-    }
-
-    if (movedExistingOutDir) {
-        await rm(rollbackOutDir, { force: true, recursive: true }).catch(() => undefined);
-    }
-    await cleanupLegacyReleaseTarget(rootDir, legacyReleaseTarget);
-    return published;
 };
 
 const readRequiredText = async (path: string): Promise<Result<string>> => {
@@ -1005,77 +368,6 @@ const createProductionEsmEnvPlugin = (): BunPlugin => ({
     },
 });
 
-const SVELTE_BROWSER_IMPORTS = {
-    svelte: "src/index-client.js",
-    "svelte/store": "src/store/index-client.js",
-    "svelte/legacy": "src/legacy/legacy-client.js",
-    "svelte/internal": "src/internal/index.js",
-    "svelte/internal/client": "src/internal/client/index.js",
-    "svelte/internal/disclose-version": "src/internal/disclose-version.js",
-} as const;
-
-const findSveltePackageRoot = (startDir: string): string | null => {
-    let currentDir = resolve(startDir);
-
-    while (true) {
-        const packageJsonPath = join(currentDir, "node_modules", "svelte", "package.json");
-        if (existsSync(packageJsonPath)) {
-            return dirname(realpathSync(packageJsonPath));
-        }
-
-        const parentDir = dirname(currentDir);
-        if (parentDir === currentDir) {
-            return null;
-        }
-
-        currentDir = parentDir;
-    }
-};
-
-export const resolveSvelteBrowserImportPath = (rootDir: string, specifier: string): string | null => {
-    const relativePath = SVELTE_BROWSER_IMPORTS[specifier as keyof typeof SVELTE_BROWSER_IMPORTS];
-    if (relativePath === undefined) {
-        return null;
-    }
-
-    const sveltePackageRoot = findSveltePackageRoot(rootDir);
-    if (sveltePackageRoot === null) {
-        return null;
-    }
-
-    return join(sveltePackageRoot, relativePath);
-};
-
-export const validateSvelteBrowserImportAliases = async (rootDir: string): Promise<Result<void>> => {
-    const sveltePackageRoot = findSveltePackageRoot(rootDir);
-    if (sveltePackageRoot === null) {
-        return fail(`Svelte runtime alias validation failed for ${rootDir}: unable to locate node_modules/svelte/package.json.`);
-    }
-
-    const missingSpecifiers: string[] = [];
-
-    await Promise.all(
-        Object.keys(SVELTE_BROWSER_IMPORTS).map(async (specifier) => {
-            const resolvedPath = join(sveltePackageRoot, SVELTE_BROWSER_IMPORTS[specifier as keyof typeof SVELTE_BROWSER_IMPORTS]);
-            if (resolvedPath === null) {
-                return;
-            }
-
-            if (!(await Bun.file(resolvedPath).exists())) {
-                missingSpecifiers.push(specifier);
-            }
-        }),
-    );
-
-    if (missingSpecifiers.length > 0) {
-        return fail(
-            `Svelte runtime alias validation failed for ${rootDir}: missing browser runtime files for ${missingSpecifiers.join(", ")}.`,
-        );
-    }
-
-    return ok(undefined);
-};
-
 const createSvelteRuntimeAliasPlugin = (rootDir: string): BunPlugin => ({
     name: "svelte-runtime-alias-plugin",
     target: "browser",
@@ -1113,66 +405,7 @@ export const createSveltePlugin = (cssByPath: Map<string, string>): BunPlugin =>
     },
 });
 
-export const defineSvelteConfig = (config: BuildSvelteOptions): BuildSvelteOptions => config;
-
 const resolveSourcemapMode = (sourcemap: boolean | undefined): BuildConfig["sourcemap"] => (sourcemap ? "inline" : "none");
-
-const loadModuleConfigFile = async (configPath: string): Promise<Result<unknown>> => {
-    const outputPath = join("/tmp", `svelte-lib-config-${randomUUID()}.bin`);
-
-    try {
-        const subprocess = Bun.spawn({
-            cmd: [process.execPath, LOAD_CONFIG_RUNNER_PATH, configPath, outputPath],
-            stderr: "pipe",
-            stdout: "pipe",
-        });
-        const [exitCode, stderr, stdout] = await Promise.all([
-            subprocess.exited,
-            new Response(subprocess.stderr).text(),
-            new Response(subprocess.stdout).text(),
-        ]);
-
-        if (exitCode !== 0) {
-            const errorMessage = stderr.trim() || stdout.trim() || `Config loader exited with code ${exitCode}`;
-            return fail(`Failed to load ${configPath}: ${errorMessage}`);
-        }
-
-        return ok(deserialize(await readFile(outputPath)));
-    } catch (error) {
-        return fail(`Failed to load ${configPath}: ${getErrorMessage(error)}`);
-    } finally {
-        await rm(outputPath, { force: true }).catch(() => undefined);
-    }
-};
-
-export const loadSvelteConfig = async (cwd = process.cwd()): Promise<Result<BuildSvelteOptions>> => {
-    const configRoot = resolve(cwd);
-    const configPath = join(configRoot, CONFIG_FILE_NAME);
-    const configExists = await Bun.file(configPath).exists();
-    if (!configExists) {
-        const legacyJsonConfigPath = join(configRoot, "svelte-builder.config.json");
-        if (await Bun.file(legacyJsonConfigPath).exists()) {
-            return fail(`Legacy config is no longer supported: ${legacyJsonConfigPath}. Rename it to ${configPath}.`);
-        }
-
-        return fail(`Missing config: ${configPath}`);
-    }
-
-    const loaded = await loadModuleConfigFile(configPath);
-    if (!loaded.ok) {
-        return loaded;
-    }
-
-    const parsed = parseBuildConfig(loaded.value, CONFIG_FILE_NAME);
-    if (!parsed.ok) {
-        return parsed;
-    }
-
-    return ok({
-        ...parsed.value,
-        rootDir: configRoot,
-    });
-};
 
 const writeJavaScriptAssets = async (outDir: string, assets: FinalJavaScriptAsset[]): Promise<Result<void>> => {
     const writes = Array.from(
