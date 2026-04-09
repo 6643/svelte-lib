@@ -33,7 +33,7 @@ export const createRuntimeModuleSource = (mountId: string): string => {
         "export const getMountTarget = (scope = document) => {",
         "    const target = scope.getElementById(mountId);",
         "    if (!target) {",
-        '        throw new Error(`Missing mount id: ${mountId}`);',
+        "        throw new Error(`Missing mount id: ${mountId}`);",
         "    }",
         "    return target;",
         "};",

@@ -33,9 +33,7 @@ const rewriteJavaScriptAssetReferences = (content: string, nameMap: Map<string, 
     return content.replace(pattern, (match) => nameMap.get(match) ?? match);
 };
 
-const validateUniqueAssetNames = (
-    assets: Array<{ content: string; finalFile: string; oldFile: string }>,
-): Result<void> => {
+const validateUniqueAssetNames = (assets: Array<{ content: string; finalFile: string; oldFile: string }>): Result<void> => {
     const contentsByFinalFile = new Map<string, string>();
 
     for (const asset of assets) {
@@ -77,9 +75,7 @@ const createFinalJavaScriptAssets = (
 const areNameMapsEqual = (left: Map<string, string>, right: Map<string, string>): boolean =>
     left.size === right.size && Array.from(left.entries()).every(([key, value]) => right.get(key) === value);
 
-const readStagedJavaScriptAssets = async (
-    outputs: BuildArtifact[],
-): Promise<Result<StagedJavaScriptAsset[]>> => {
+const readStagedJavaScriptAssets = async (outputs: BuildArtifact[]): Promise<Result<StagedJavaScriptAsset[]>> => {
     const jsOutputs = outputs.filter(
         (output): output is BuildArtifact & { kind: "chunk" | "entry-point" } =>
             (output.kind === "chunk" || output.kind === "entry-point") && output.path.endsWith(".js"),
@@ -93,7 +89,10 @@ const readStagedJavaScriptAssets = async (
         })),
     ).then(
         (assets) => ({ ok: true, value: assets }),
-        (error) => ({ ok: false, error: `Failed to read staged JavaScript assets: ${error instanceof Error ? error.message : String(error)}` }),
+        (error) => ({
+            ok: false,
+            error: `Failed to read staged JavaScript assets: ${error instanceof Error ? error.message : String(error)}`,
+        }),
     );
 };
 

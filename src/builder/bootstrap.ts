@@ -19,7 +19,7 @@ export const createBootstrapSource = (appComponentImportPath = "./src/App.svelte
         `import App from ${JSON.stringify(normalizeImportPath(appComponentImportPath))};`,
         "",
         `const target = document.getElementById(${JSON.stringify(mountId)});`,
-        'if (target === null) {',
+        "if (target === null) {",
         `    throw new Error(${JSON.stringify(`Missing mount target: #${mountId}`)});`,
         "}",
         "",

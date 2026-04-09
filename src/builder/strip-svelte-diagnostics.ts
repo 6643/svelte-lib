@@ -13,7 +13,8 @@ export const stripSvelteDiagnosticsModule = (source: string, kind: SvelteDiagnos
     return [
         ...exportStarStatements.map(([statement]) => statement.trim()),
         ...exportedFunctions.map(([, name, args]) => {
-            const statement = kind === "errors" ? `throw Error(${JSON.stringify(name)});` : `console.warn(${JSON.stringify(name)});`;
+            const statement =
+                kind === "errors" ? `throw Error(${JSON.stringify(name)});` : `console.warn(${JSON.stringify(name)});`;
             return `export function ${name}(${args}) { ${statement} }`;
         }),
     ].join("\n");

@@ -36,9 +36,7 @@ const resolvePhysicalPath = async (path: string): Promise<Result<string>> =>
     realpath(path).then(
         (value) => ok(value),
         (error: unknown) =>
-            fail(
-                `Failed to resolve physical path ${path}: ${error instanceof Error ? error.message : String(error)}`,
-            ),
+            fail(`Failed to resolve physical path ${path}: ${error instanceof Error ? error.message : String(error)}`),
     );
 
 const resolvePhysicalChildPath = async (path: string): Promise<Result<string>> => {
@@ -70,9 +68,7 @@ const resolveConfiguredAssetsDir = async (
             if (code === "ENOENT" || code === "ENOTDIR") {
                 return allowMissing
                     ? ok(undefined)
-                    : fail(
-                          `Missing configured assets directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`,
-                      );
+                    : fail(`Missing configured assets directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
             }
 
             return fail(
@@ -165,7 +161,8 @@ export const resolveConfiguredAssetsDirs = async (
 const copyDirectoryContents = async (sourceDir: string, destinationDir: string): Promise<Result<void>> => {
     const entries = await readdir(sourceDir, { withFileTypes: true }).then(
         (value) => ok(value),
-        (error) => fail(`Failed to read assets directory ${sourceDir}: ${error instanceof Error ? error.message : String(error)}`),
+        (error) =>
+            fail(`Failed to read assets directory ${sourceDir}: ${error instanceof Error ? error.message : String(error)}`),
     );
     if (!entries.ok) {
         return entries;
@@ -173,7 +170,10 @@ const copyDirectoryContents = async (sourceDir: string, destinationDir: string):
 
     const created = await mkdir(destinationDir, { recursive: true }).then(
         () => ok(destinationDir),
-        (error) => fail(`Failed to create assets output directory ${destinationDir}: ${error instanceof Error ? error.message : String(error)}`),
+        (error) =>
+            fail(
+                `Failed to create assets output directory ${destinationDir}: ${error instanceof Error ? error.message : String(error)}`,
+            ),
     );
     if (!created.ok) {
         return created;
@@ -214,10 +214,7 @@ const copyDirectoryContents = async (sourceDir: string, destinationDir: string):
 export const resolveAssetPath = (assetsRoot: string, requestedPath: string): Result<string> =>
     resolvePathWithinRoot(assetsRoot, requestedPath);
 
-export const resolvePhysicalAssetPath = async (
-    assetsRoot: string,
-    requestedPath: string,
-): Promise<Result<string>> => {
+export const resolvePhysicalAssetPath = async (assetsRoot: string, requestedPath: string): Promise<Result<string>> => {
     const lexicalPath = resolveAssetPath(assetsRoot, requestedPath);
     if (!lexicalPath.ok) {
         return lexicalPath;
