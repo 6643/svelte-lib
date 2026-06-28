@@ -1,7 +1,6 @@
 export {
     buildSvelte,
     buildProduction,
-    createSveltePlugin,
     defineSvelteConfig,
     loadSvelteConfig,
     runConfiguredBuild,

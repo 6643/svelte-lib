@@ -39,7 +39,9 @@ import {
     isRelativeImportSpecifier,
     skipQuotedString,
     skipWhitespaceAndComments,
-} from "./import-utils";export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+} from "./import-utils";
+
+export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export type HtmlShell = {
     appHtml: string;
@@ -64,6 +66,7 @@ export type BuildCliDependencies = {
 };
 
 export { defineSvelteConfig, loadSvelteConfig } from "./build-config";
+export { createSveltePlugin } from "./build-plugins";
 export type { BuildSvelteOptions } from "./build-config";
 export {
     resolveAppSourceRoot,

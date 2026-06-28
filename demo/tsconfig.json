@@ -1,0 +1,10 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "paths": {
+            "svelte": ["../node_modules/svelte"],
+            "svelte/*": ["../node_modules/svelte/*"]
+        }
+    },
+    "include": ["src"]
+}
