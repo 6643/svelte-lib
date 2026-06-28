@@ -2,36 +2,15 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
-
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+import { ok, fail, getErrorMessage, getErrorCode, isPathWithinRoot, type Result } from "./utils";
 
 const STAGE_OUTDIR_NAME = ".bsp-stage";
 const TEMP_OUTDIR_NAME = "bsp-out";
 const RELEASES_DIR_NAME = ".bsp-releases";
 const PUBLISH_PATH_HASH_HEX_LENGTH = 8;
 
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
-const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) {
-        return error.message;
-    }
-
-    return String(error);
-};
-
-const getErrorCode = (error: unknown): string | undefined =>
-    error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
-
 const createPathHash = (content: string): string =>
     new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, PUBLISH_PATH_HASH_HEX_LENGTH);
-
-const isPathWithinRoot = (rootPath: string, candidatePath: string): boolean => {
-    const relativePath = relative(rootPath, candidatePath);
-
-    return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
-};
 
 const createStageDirPrefix = (rootDir: string, outDir: string): string =>
     `${STAGE_OUTDIR_NAME}-${createPathHash(relative(rootDir, outDir).replace(/\\/g, "/"))}`;

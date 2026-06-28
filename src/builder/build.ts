@@ -40,8 +40,9 @@ import {
     skipQuotedString,
     skipWhitespaceAndComments,
 } from "./import-utils";
+import { ok, fail, getErrorMessage, getErrorCode, isPathWithinRoot, resolveConfiguredPath, type Result } from "./utils";
 
-export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+export type { Result };
 
 export type HtmlShell = {
     appHtml: string;
@@ -83,31 +84,6 @@ export const DEFAULT_HTML_SHELL: HtmlShell = {
 };
 const FINAL_HASH_HEX_LENGTH = 8;
 const MAX_JS_HASH_STABILIZATION_PASSES = 32;
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
-const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) {
-        return error.message;
-    }
-
-    return String(error);
-};
-
-const getErrorCode = (error: unknown): string | undefined =>
-    error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
-
-const isPathWithinRoot = (rootPath: string, candidatePath: string): boolean => {
-    const relativePath = relative(rootPath, candidatePath);
-
-    return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
-};
-
-const resolveConfiguredPath = (rootDir: string, value: string | undefined, fallback: string): string => {
-    const target = value ?? fallback;
-    return isAbsolute(target) ? target : join(rootDir, target);
-};
 
 const validateOutDir = (rootDir: string, outDir: string, appSourceRoot: string): Result<string> => {
     if (!isPathWithinRoot(rootDir, outDir) || outDir === rootDir) {

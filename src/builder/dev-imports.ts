@@ -1,7 +1,6 @@
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+import { ok, fail, getErrorMessage, normalizeModulePath, type Result } from "./utils";
 
 export const DEV_SPECIAL_IMPORTS = {
     "esm-env": "/_virtual/esm-env.js",
@@ -10,19 +9,6 @@ export const DEV_SPECIAL_IMPORTS = {
     "svelte/internal/client": "/_node_modules/svelte/src/internal/client/index.js",
     "svelte/internal/disclose-version": "/_node_modules/svelte/src/internal/disclose-version.js",
 } as const;
-
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
-const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) {
-        return error.message;
-    }
-
-    return String(error);
-};
-
-const normalizeModulePath = (value: string): string => value.replace(/\\/g, "/");
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 

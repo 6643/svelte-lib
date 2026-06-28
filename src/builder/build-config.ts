@@ -3,8 +3,7 @@ import { readFile, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deserialize } from "node:v8";
-
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+import { ok, fail, getErrorMessage, type Result } from "./utils";
 
 export type BuildSvelteOptions = {
     appTitle?: string;
@@ -34,20 +33,7 @@ const SUPPORTED_CONFIG_FIELDS = [
     "stripSvelteDiagnostics",
 ] as const;
 
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
-const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) {
-        return error.message;
-    }
-
-    return String(error);
-};
-
-const hasOwnProperty = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+const hasOwnProperty = (value: object, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key);const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value);
 
 const readOptionalStringField = (config: Record<string, unknown>, field: string): Result<string | undefined> => {

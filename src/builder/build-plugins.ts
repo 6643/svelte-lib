@@ -2,15 +2,7 @@ import type { BunPlugin } from "bun";
 import { compile } from "svelte/compiler";
 import { resolveSvelteBrowserImportPath } from "./build-validate";
 import { stripSvelteDiagnosticsModule } from "./strip-svelte-diagnostics";
-import type { Result } from "./build";
-
-const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) return error.message;
-    return String(error);
-};
-
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-const fail = (error: string): Result<never> => ({ ok: false, error });
+import { ok, fail, getErrorMessage, type Result } from "./utils";
 
 const createScopedCssClassName = (css: string, hash: (input: string) => string): string => `_${hash(css)}`;
 

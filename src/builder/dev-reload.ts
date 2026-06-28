@@ -1,6 +1,7 @@
 import { lstatSync, readdirSync, realpathSync, watch } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { isSupportedLocalSourceModule } from "./source-modules";
+import { getErrorMessage } from "./utils";
 
 export type DevWatchRoot = {
     path: string;
@@ -24,14 +25,6 @@ export type DevReloadHub<TCache> = {
 const DEV_CONFIG_FILE_NAME = "builder.ts";
 const DEV_WATCH_DEBOUNCE_MS = 100;
 const EXCLUDED_DIRS = ["node_modules", ".git", "dist"];
-
-const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) {
-        return error.message;
-    }
-
-    return String(error);
-};
 
 const isCompilableDevModule = (filePath: string): boolean => isSupportedLocalSourceModule(filePath);
 

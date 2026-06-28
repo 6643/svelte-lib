@@ -26,6 +26,8 @@ import {
     isSupportedSvelteSourceModule,
     isSupportedTypeScriptSourceModule,
 } from "./source-modules";
+import { ok, fail, getErrorMessage, getErrorCode, normalizeModulePath } from "./utils";
+import { escapeHtml } from "./import-utils";
 
 export type DevServerHandle = {
     port: number;
@@ -45,26 +47,9 @@ export type DevCliDependencies = {
 export { resolveBareImportPathForDev } from "./dev-imports";
 export { attachDevWatcherErrorHandler, classifyDevWatchTarget, formatDevWatcherIssue, shouldProcessDevWatchEvent } from "./dev-reload";
 
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
 const DEV_PORT_RETRY_LIMIT = 8;
 const DEV_PORT_RANGE_MAX = 65535;
 const DEV_PORT_RANGE_MIN = 49152;
-const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) {
-        return error.message;
-    }
-
-    return String(error);
-};
-
-const getErrorCode = (error: unknown): string | undefined =>
-    error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
-
-const escapeHtml = (value: string): string =>
-    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
 const createNotFoundResponse = (): Response => new Response("Not Found", { status: 404 });
 const createMethodNotAllowedResponse = (): Response =>
@@ -72,7 +57,6 @@ const createMethodNotAllowedResponse = (): Response =>
         status: 405,
         headers: { Allow: "GET, HEAD" },
     });
-const normalizeModulePath = (value: string): string => value.replace(/\\/g, "/");
 const DEV_LIVE_RELOAD_PATH = "/___live_reload";
 const DEV_INTERNAL_PATH_PREFIXES = ["/_node_modules/", "/_virtual/"] as const;
 

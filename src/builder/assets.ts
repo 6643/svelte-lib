@@ -1,25 +1,9 @@
 import { copyFile, mkdir, readdir, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-
-export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+import { ok, fail, getErrorCode, isPathWithinRoot, type Result } from "./utils";
 export type ResolvedAssetsDir = {
     dirName: string;
     physicalPath: string;
-};
-
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
-const getErrorCode = (error: unknown): string | undefined =>
-    error instanceof Error && "code" in error && typeof (error as { code?: unknown }).code === "string"
-        ? (error as { code: string }).code
-        : undefined;
-
-const isPathWithinRoot = (rootPath: string, candidatePath: string): boolean => {
-    const relativePath = relative(rootPath, candidatePath);
-
-    return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 };
 
 const resolvePathWithinRoot = (rootPath: string, requestedPath: string): Result<string> => {

@@ -18,25 +18,7 @@ import {
     isSupportedSvelteSourceModule,
     isSupportedTypeScriptSourceModule,
 } from "./source-modules";
-
-export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
-
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
-const getErrorMessage = (error: unknown): string => {
-    if (error instanceof Error) {
-        return error.message;
-    }
-
-    return String(error);
-};
-
-const isPathWithinRoot = (rootPath: string, candidatePath: string): boolean => {
-    const relativePath = relative(rootPath, candidatePath);
-
-    return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
-};
+import { ok, fail, getErrorMessage, isPathWithinRoot, type Result } from "./utils";
 
 const isPathWithinAnyRoot = (roots: string[], candidatePath: string): boolean =>
     roots.some((rootPath) => isPathWithinRoot(rootPath, candidatePath));

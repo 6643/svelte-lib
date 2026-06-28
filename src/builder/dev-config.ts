@@ -8,7 +8,7 @@ import {
     validateSvelteBrowserImportAliases,
 } from "./build";
 import { resolveConfiguredAssetsDirs, type ResolvedAssetsDir } from "./assets";
-import { resolveConfiguredPath } from "./bootstrap";
+import { ok, fail, normalizeModulePath, resolveConfiguredPath } from "./utils";
 
 type DevRuntimeState = {
     appComponentPath: string;
@@ -24,11 +24,6 @@ export type DevWatchRoot = {
     path: string;
     recursive: boolean;
 };
-
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
-const normalizeModulePath = (value: string): string => value.replace(/\\/g, "/");
 
 const createSourcePathPrefix = (rootDir: string, sourceRoot: string): string | undefined => {
     const relativeSourceRoot = normalizeModulePath(relative(rootDir, sourceRoot));
