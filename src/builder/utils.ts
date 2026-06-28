@@ -23,6 +23,20 @@ export const isPathWithinRoot = (rootPath: string, candidatePath: string): boole
   return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 };
 
+export const formatBuildLogs = (logs: Array<{ message?: string; name?: string }>): string => {
+  if (logs.length === 0) {
+    return "Bun.build failed without diagnostic logs.";
+  }
+  return logs.map((log) => log.message ?? log.name ?? "Unknown build error").join("\n");
+};
+
+export const getBuildErrorMessage = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "logs" in error && Array.isArray(error.logs)) {
+    return formatBuildLogs(error.logs as Array<{ message?: string; name?: string }>);
+  }
+  return error instanceof Error ? error.message : String(error);
+};
+
 export const normalizeModulePath = (value: string): string => value.replace(/\\/g, "/");
 
 export const resolveConfiguredPath = (rootDir: string, value: string | undefined, fallback: string): string => {

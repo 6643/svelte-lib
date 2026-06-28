@@ -32,7 +32,7 @@ import {
 import {
     escapeHtml,
 } from "./import-utils";
-import { ok, fail, getErrorMessage, isPathWithinRoot, resolveConfiguredPath, type Result } from "./utils";
+import { ok, fail, formatBuildLogs, getErrorMessage, isPathWithinRoot, resolveConfiguredPath, type Result } from "./utils";
 
 export type { Result };
 
@@ -102,14 +102,6 @@ const createHex16Hash = (content: string): string =>
     new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, FINAL_HASH_HEX_LENGTH);
 
 const createFinalAssetFile = (content: string, extension: ".css" | ".js"): string => `${createHex16Hash(content)}${extension}`;
-
-const formatBuildLogs = (logs: Array<{ message?: string; name?: string }>): string => {
-    if (logs.length === 0) {
-        return "Bun.build failed without diagnostic logs.";
-    }
-
-    return logs.map((log) => log.message ?? log.name ?? "Unknown build error").join("\n");
-};
 
 const prepareDir = async (path: string): Promise<Result<string>> => {
     const cleared = await rm(path, { force: true, recursive: true }).then(

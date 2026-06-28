@@ -2,27 +2,7 @@ import { randomUUID } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BuildConfig } from "bun";
-
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
-
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
-const fail = (error: string): Result<never> => ({ ok: false, error });
-
-const formatBuildLogs = (logs: Array<{ message?: string; name?: string }>): string => {
-    if (logs.length === 0) {
-        return "Bun.build failed without diagnostic logs.";
-    }
-
-    return logs.map((log) => log.message ?? log.name ?? "Unknown build error").join("\n");
-};
-
-const getBuildErrorMessage = (error: unknown): string => {
-    if (typeof error === "object" && error !== null && "logs" in error && Array.isArray(error.logs)) {
-        return formatBuildLogs(error.logs as Array<{ message?: string; name?: string }>);
-    }
-
-    return error instanceof Error ? error.message : String(error);
-};
+import { ok, fail, formatBuildLogs, getBuildErrorMessage, type Result } from "./utils";
 
 const minifyCssContent = async (content: string): Promise<Result<string>> => {
     const tempFile = join("/tmp", `svelte-lib-css-${randomUUID()}.css`);
