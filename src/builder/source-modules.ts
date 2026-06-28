@@ -3,7 +3,10 @@ const isTypeScriptDeclarationFile = (path: string): boolean => path.endsWith(".d
 
 export const formatSupportedLocalSourceModuleExtensions = (): string => SUPPORTED_LOCAL_SOURCE_MODULE_EXTENSIONS.join(", ");
 
-export const isSupportedJavaScriptSourceModule = (path: string): boolean => path.endsWith(".js") || path.endsWith(".mjs");
+const JS_EXTENSIONS = [".js", ".mjs"] as const;
+
+export const isSupportedJavaScriptSourceModule = (path: string): boolean =>
+  JS_EXTENSIONS.some((ext) => path.endsWith(ext));
 
 export const isSupportedLocalSourceModule = (path: string): boolean =>
     !isTypeScriptDeclarationFile(path) &&
