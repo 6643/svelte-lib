@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 import { randomInt } from "node:crypto";
-import { existsSync, lstatSync, realpathSync, statSync, type FSWatcher } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { realpathSync, statSync, type FSWatcher } from "node:fs";
+import { join } from "node:path";
 import type { ErrorLike, Server } from "bun";
 import {
     createHtmlShell,
@@ -27,11 +27,8 @@ import {
     compileChangedDevAsset,
     type DevCompileCache,
 } from "./dev-compile";
-import {
-    isSupportedJavaScriptSourceModule,
-    isSupportedSvelteSourceModule,
-    isSupportedTypeScriptSourceModule,
-} from "./source-modules";
+import { isSupportedLocalSourceModule } from "./source-modules";
+import { getRawRequestPathname, isPathInsideRoot, resolveDevRequestPath, resolveDevNodeModuleRequestPath, findNodeModulesRoot } from "./dev-router";
 
 export type DevServerHandle = {
     port: number;
@@ -118,182 +115,6 @@ const shouldServeDevAppShell = (method: string, pathname: string, sourcePathPref
 
     const lastSegment = pathname.split("/").pop() ?? "";
     return !lastSegment.includes(".");
-};
-
-const getRawRequestPathname = (requestUrl: string): string => {
-    const schemeIndex = requestUrl.indexOf("://");
-    const pathnameStart = schemeIndex === -1 ? requestUrl.indexOf("/") : requestUrl.indexOf("/", schemeIndex + 3);
-    const pathnameWithQuery = pathnameStart === -1 ? "/" : requestUrl.slice(pathnameStart);
-    const queryStart = pathnameWithQuery.search(/[?#]/);
-
-    return queryStart === -1 ? pathnameWithQuery : pathnameWithQuery.slice(0, queryStart);
-};
-
-const isPathInsideRoot = (rootDir: string, targetPath: string): boolean => {
-    const relativePath = relative(rootDir, targetPath);
-
-    return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
-};
-
-const resolveDevRequestPath = async (
-    rootDir: string,
-    rawPathname: string,
-    prefix: string,
-): Promise<Result<{ filePath: string; modulePath: string; resolvedPath: string }>> => {
-    const encodedPath = prefix === "/" ? rawPathname.slice(1) : rawPathname.slice(prefix.length);
-    let decodedPath: string;
-
-    try {
-        decodedPath = decodeURIComponent(encodedPath);
-    } catch {
-        return fail("Rejected path");
-    }
-
-    const segments: string[] = [];
-    for (const segment of decodedPath.replace(/\\/g, "/").split("/")) {
-        if (segment.length === 0 || segment === ".") {
-            continue;
-        }
-
-        if (segment === "..") {
-            return fail("Rejected path");
-        }
-
-        segments.push(segment);
-    }
-
-    if (segments.length === 0) {
-        return fail("Rejected path");
-    }
-
-    const modulePath = segments.join("/");
-    const filePath = join(rootDir, modulePath);
-    const pathStatus = (() => {
-        try {
-            return lstatSync(filePath);
-        } catch {
-            return undefined;
-        }
-    })();
-
-    if (pathStatus?.isSymbolicLink()) {
-        try {
-            const realRootDir = realpathSync(rootDir);
-            const realFilePath = realpathSync(filePath);
-            if (!isPathInsideRoot(realRootDir, realFilePath)) {
-                return fail("Rejected path");
-            }
-
-            return ok({ filePath, modulePath, resolvedPath: realFilePath });
-        } catch {
-            return fail("Rejected path");
-        }
-    }
-
-    if (!(await Bun.file(filePath).exists())) {
-        return ok({ filePath, modulePath, resolvedPath: filePath });
-    }
-
-    const realRootDir = realpathSync(rootDir);
-    const realFilePath = realpathSync(filePath);
-    if (!isPathInsideRoot(realRootDir, realFilePath)) {
-        return fail("Rejected path");
-    }
-
-    return ok({ filePath, modulePath, resolvedPath: realFilePath });
-};
-
-const getNodeModulePackageNameSegments = (segments: string[]): string[] => {
-    if (segments[0]?.startsWith("@")) {
-        return segments.length >= 2 ? segments.slice(0, 2) : [];
-    }
-
-    return segments.length >= 1 ? segments.slice(0, 1) : [];
-};
-
-const resolveDevNodeModuleRequestPath = async (
-    nodeModulesRoot: string,
-    rawPathname: string,
-): Promise<Result<{ filePath: string; modulePath: string; packageRoot: string; resolvedPath: string }>> => {
-    const encodedPath = rawPathname.slice("/_node_modules/".length);
-    let decodedPath: string;
-
-    try {
-        decodedPath = decodeURIComponent(encodedPath);
-    } catch {
-        return fail("Rejected path");
-    }
-
-    const segments: string[] = [];
-    for (const segment of decodedPath.replace(/\\/g, "/").split("/")) {
-        if (segment.length === 0 || segment === ".") {
-            continue;
-        }
-
-        if (segment === "..") {
-            return fail("Rejected path");
-        }
-
-        segments.push(segment);
-    }
-
-    const packageNameSegments = getNodeModulePackageNameSegments(segments);
-    if (packageNameSegments.length === 0 || segments.length <= packageNameSegments.length) {
-        return fail("Rejected path");
-    }
-
-    const packagePath = join(nodeModulesRoot, ...packageNameSegments);
-    let packageRoot: string;
-    try {
-        packageRoot = dirname(realpathSync(join(packagePath, "package.json")));
-    } catch {
-        return fail("Rejected path");
-    }
-
-    const moduleSegments = segments.slice(packageNameSegments.length);
-    const modulePath = moduleSegments.join("/");
-    const filePath = join(packagePath, modulePath);
-
-    if (!(await Bun.file(filePath).exists())) {
-        return ok({ filePath, modulePath, packageRoot, resolvedPath: filePath });
-    }
-
-    let resolvedPath: string;
-    try {
-        resolvedPath = realpathSync(filePath);
-    } catch {
-        return fail("Rejected path");
-    }
-
-    if (!isPathInsideRoot(packageRoot, resolvedPath)) {
-        return fail("Rejected path");
-    }
-
-    return ok({ filePath, modulePath, packageRoot, resolvedPath });
-};
-
-export const findNodeModulesRoot = async (startDir: string): Promise<Result<string>> => {
-    let current = startDir;
-    let fallback: string | undefined;
-
-    while (true) {
-        const candidate = join(current, "node_modules", "svelte", "package.json");
-        if (await Bun.file(candidate).exists()) {
-            const nodeModulesDir = join(current, "node_modules");
-            if (existsSync(join(nodeModulesDir, ".bun"))) {
-                return ok(nodeModulesDir);
-            }
-
-            fallback ??= nodeModulesDir;
-        }
-
-        const parent = dirname(current);
-        if (parent === current) {
-            return fallback === undefined ? fail(`Unable to locate node_modules from ${startDir}`) : ok(fallback);
-        }
-
-        current = parent;
-    }
 };
 
 const createImportMap = () => ({
@@ -407,6 +228,32 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
         reloadConfig,
     );
 
+    const handleSourceModuleRequest = async (
+        rawPathname: string,
+        rootDir: string,
+        sourceRoot: string,
+        cache: DevCompileCache,
+    ): Promise<Response | null> => {
+        const resolvedSourcePath = await resolveDevRequestPath(rootDir, rawPathname, "/");
+        if (!resolvedSourcePath.ok) {
+            return null;
+        }
+
+        if (!isPathInsideRoot(sourceRoot, resolvedSourcePath.value.resolvedPath)) {
+            return null;
+        }
+
+        const allowedRoots = [realpathSync(sourceRoot)];
+        const source = await loadDevModule(rootDir, resolvedSourcePath.value.modulePath, cache, allowedRoots);
+        if (!source.ok) {
+            return createDevModuleErrorResponse(source.error);
+        }
+
+        return new Response(source.value, {
+            headers: { "Content-Type": "application/javascript" },
+        });
+    };
+
     const started = await startServer(
         config.value,
         async (req: Request) => {
@@ -490,78 +337,11 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
                 return new Response(nodeModuleFile);
             }
 
-            if (isSupportedTypeScriptSourceModule(rawPathname)) {
-                const resolvedSourcePath = await resolveDevRequestPath(rootDir, rawPathname, "/");
-                if (!resolvedSourcePath.ok) {
-                    return new Response("Not Found", { status: 404 });
-                }
-
-                if (!isPathInsideRoot(currentState.sourceRoot, resolvedSourcePath.value.resolvedPath)) {
-                    return new Response("Not Found", { status: 404 });
-                }
-
-                const allowedSourceRoots = [realpathSync(currentState.sourceRoot)];
-                const transpiled = await loadDevModule(
-                    rootDir,
-                    resolvedSourcePath.value.modulePath,
-                    reloadHub.cache,
-                    allowedSourceRoots,
+            if (isSupportedLocalSourceModule(rawPathname)) {
+                const result = await handleSourceModuleRequest(
+                    rawPathname, rootDir, currentState.sourceRoot, reloadHub.cache,
                 );
-                if (!transpiled.ok) {
-                    return createDevModuleErrorResponse(transpiled.error);
-                }
-
-                return new Response(transpiled.value, {
-                    headers: { "Content-Type": "application/javascript" },
-                });
-            }
-
-            if (isSupportedJavaScriptSourceModule(rawPathname)) {
-                const resolvedSourcePath = await resolveDevRequestPath(rootDir, rawPathname, "/");
-                if (!resolvedSourcePath.ok) {
-                    return new Response("Not Found", { status: 404 });
-                }
-
-                if (!isPathInsideRoot(currentState.sourceRoot, resolvedSourcePath.value.resolvedPath)) {
-                    return new Response("Not Found", { status: 404 });
-                }
-
-                const allowedSourceRoots = [realpathSync(currentState.sourceRoot)];
-                const source = await loadDevModule(
-                    rootDir,
-                    resolvedSourcePath.value.modulePath,
-                    reloadHub.cache,
-                    allowedSourceRoots,
-                );
-                if (!source.ok) {
-                    return createDevModuleErrorResponse(source.error);
-                }
-
-                return new Response(source.value, {
-                    headers: { "Content-Type": "application/javascript" },
-                });
-            }
-
-            if (isSupportedSvelteSourceModule(rawPathname)) {
-                const resolvedSourcePath = await resolveDevRequestPath(rootDir, rawPathname, "/");
-                if (!resolvedSourcePath.ok) {
-                    return new Response("Not Found", { status: 404 });
-                }
-
-                if (!isPathInsideRoot(currentState.sourceRoot, resolvedSourcePath.value.resolvedPath)) {
-                    return new Response("Not Found", { status: 404 });
-                }
-
-                const compiled = await loadDevModule(rootDir, resolvedSourcePath.value.modulePath, reloadHub.cache, [
-                    realpathSync(currentState.sourceRoot),
-                ]);
-                if (!compiled.ok) {
-                    return createDevModuleErrorResponse(compiled.error);
-                }
-
-                return new Response(compiled.value, {
-                    headers: { "Content-Type": "application/javascript" },
-                });
+                if (result !== null) return result;
             }
 
             if (shouldServeDevAppShell(req.method, url.pathname, currentState.sourcePathPrefix)) {
