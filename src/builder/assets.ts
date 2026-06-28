@@ -1,5 +1,5 @@
-import { copyFile, mkdir, readdir, realpath, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { cp, realpath, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { ok, fail, getErrorCode, isPathWithinRoot, type Result } from "./utils";
 export type ResolvedAssetsDir = {
     dirName: string;
@@ -142,59 +142,6 @@ export const resolveConfiguredAssetsDirs = async (
     return ok(resolvedEntries);
 };
 
-const copyDirectoryContents = async (sourceDir: string, destinationDir: string): Promise<Result<void>> => {
-    const entries = await readdir(sourceDir, { withFileTypes: true }).then(
-        (value) => ok(value),
-        (error) =>
-            fail(`Failed to read assets directory ${sourceDir}: ${error instanceof Error ? error.message : String(error)}`),
-    );
-    if (!entries.ok) {
-        return entries;
-    }
-
-    const created = await mkdir(destinationDir, { recursive: true }).then(
-        () => ok(destinationDir),
-        (error) =>
-            fail(
-                `Failed to create assets output directory ${destinationDir}: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-    );
-    if (!created.ok) {
-        return created;
-    }
-
-    for (const entry of entries.value) {
-        const sourcePath = join(sourceDir, entry.name);
-        const destinationPath = join(destinationDir, entry.name);
-
-        if (entry.isDirectory()) {
-            const copied = await copyDirectoryContents(sourcePath, destinationPath);
-            if (!copied.ok) {
-                return copied;
-            }
-            continue;
-        }
-
-        if (entry.isSymbolicLink()) {
-            return fail(`Symbolic links are not supported in assets directory: ${sourcePath}`);
-        }
-
-        if (!entry.isFile()) {
-            return fail(`Unsupported assets entry: ${sourcePath}`);
-        }
-
-        const copied = await copyFile(sourcePath, destinationPath).then(
-            () => ok(destinationPath),
-            (error) => fail(`Failed to copy asset ${sourcePath}: ${error instanceof Error ? error.message : String(error)}`),
-        );
-        if (!copied.ok) {
-            return copied;
-        }
-    }
-
-    return ok(undefined);
-};
-
 export const resolveAssetPath = (assetsRoot: string, requestedPath: string): Result<string> =>
     resolvePathWithinRoot(assetsRoot, requestedPath);
 
@@ -244,7 +191,12 @@ export const copyConfiguredAssets = async (assetsRoot: string, assetsOutDir: str
         return roots;
     }
 
-    const copied = await copyDirectoryContents(physicalAssetsRoot.value, physicalAssetsOutDir.value);
+    const copied = await cp(physicalAssetsRoot.value, physicalAssetsOutDir.value, {
+      recursive: true,
+    }).then(
+      () => ok(assetsOutDir),
+      (error) => fail(`Failed to copy assets: ${error instanceof Error ? error.message : String(error)}`),
+    );
     if (!copied.ok) {
         return copied;
     }
