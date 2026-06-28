@@ -4,8 +4,7 @@ import { realpathSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { BuildConfig, BunPlugin } from "bun";
-import { compile } from "svelte/compiler";
+import type { BuildConfig } from "bun";
 import { createBootstrapSource, createImportPath } from "./bootstrap";
 import {
     CONFIG_FILE_NAME,
@@ -18,7 +17,6 @@ import {
 import { copyConfiguredAssets, resolveConfiguredAssetsDirs } from "./assets";
 import {
     resolveAppSourceRoot,
-    resolveSvelteBrowserImportPath,
     validateLocalSourceImportGraph,
     validateResolvedAppComponentPath,
     validateSvelteBrowserImportAliases,
@@ -27,9 +25,21 @@ import { acquirePublishLock, createBuildNonce, createStageDir, createTempOutDir,
 import { finalizeMergedCssAsset } from "./finalize-css";
 import { finalizeJavaScriptAssets, type FinalJavaScriptAsset } from "./finalize-js";
 import { formatBuildReport } from "./report";
-import { stripSvelteDiagnosticsModule } from "./strip-svelte-diagnostics";
-
-export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+import {
+    createProductionEsmEnvPlugin,
+    createSveltePlugin,
+    createSvelteRuntimeAliasPlugin,
+} from "./build-plugins";
+import {
+    escapeHtml,
+    findUnsupportedDynamicImportExpression,
+    isIdentifierCharacter,
+    isLocalFileImportSpecifier,
+    isPackageImportSpecifier,
+    isRelativeImportSpecifier,
+    skipQuotedString,
+    skipWhitespaceAndComments,
+} from "./import-utils";export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export type HtmlShell = {
     appHtml: string;
@@ -85,154 +95,6 @@ const getErrorMessage = (error: unknown): string => {
 const getErrorCode = (error: unknown): string | undefined =>
     error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined;
 
-const isRelativeImportSpecifier = (specifier: string): boolean => specifier.startsWith("./") || specifier.startsWith("../");
-const isLocalFileImportSpecifier = (specifier: string): boolean => specifier.startsWith("file:") || isAbsolute(specifier);
-const isPackageImportSpecifier = (specifier: string): boolean => specifier.startsWith("#");
-const isIdentifierCharacter = (value: string | undefined): boolean => value !== undefined && /[A-Za-z0-9_$]/.test(value);
-
-const skipQuotedString = (source: string, start: number, quote: "'" | '"'): number => {
-    let index = start + 1;
-
-    while (index < source.length) {
-        if (source[index] === "\\") {
-            index += 2;
-            continue;
-        }
-
-        if (source[index] === quote) {
-            return index + 1;
-        }
-
-        index += 1;
-    }
-
-    return index;
-};
-
-const skipWhitespaceAndComments = (source: string, start: number): number => {
-    let index = start;
-
-    while (index < source.length) {
-        if (/\s/.test(source[index] ?? "")) {
-            index += 1;
-            continue;
-        }
-
-        if (source[index] === "/" && source[index + 1] === "/") {
-            index += 2;
-            while (index < source.length && source[index] !== "\n") {
-                index += 1;
-            }
-            continue;
-        }
-
-        if (source[index] === "/" && source[index + 1] === "*") {
-            index += 2;
-            while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
-                index += 1;
-            }
-            index = Math.min(index + 2, source.length);
-            continue;
-        }
-
-        break;
-    }
-
-    return index;
-};
-
-const findUnsupportedDynamicImportExpression = (
-    source: string,
-    start = 0,
-    stopCharacter?: string,
-): { next: number; unsupported: boolean } => {
-    let index = start;
-
-    while (index < source.length) {
-        const character = source[index];
-        if (stopCharacter !== undefined && character === stopCharacter) {
-            return { next: index + 1, unsupported: false };
-        }
-
-        if (character === "/" && source[index + 1] === "/") {
-            index = skipWhitespaceAndComments(source, index);
-            continue;
-        }
-
-        if (character === "/" && source[index + 1] === "*") {
-            index = skipWhitespaceAndComments(source, index);
-            continue;
-        }
-
-        if (character === "'" || character === '"') {
-            index = skipQuotedString(source, index, character);
-            continue;
-        }
-
-        if (character === "`") {
-            index += 1;
-            while (index < source.length) {
-                if (source[index] === "\\") {
-                    index += 2;
-                    continue;
-                }
-
-                if (source[index] === "`") {
-                    index += 1;
-                    break;
-                }
-
-                if (source[index] === "$" && source[index + 1] === "{") {
-                    const nested = findUnsupportedDynamicImportExpression(source, index + 2, "}");
-                    if (nested.unsupported) {
-                        return nested;
-                    }
-                    index = nested.next;
-                    continue;
-                }
-
-                index += 1;
-            }
-            continue;
-        }
-
-        if (
-            source.startsWith("import", index) &&
-            !isIdentifierCharacter(source[index - 1]) &&
-            !isIdentifierCharacter(source[index + "import".length])
-        ) {
-            let nextIndex = skipWhitespaceAndComments(source, index + "import".length);
-            if (source[nextIndex] === "(") {
-                nextIndex = skipWhitespaceAndComments(source, nextIndex + 1);
-                const argumentStart = source[nextIndex];
-
-                if (argumentStart === "'" || argumentStart === '"') {
-                    index = skipQuotedString(source, nextIndex, argumentStart);
-                    continue;
-                }
-
-                if (argumentStart === "`") {
-                    return { next: nextIndex, unsupported: true };
-                }
-
-                return { next: nextIndex, unsupported: true };
-            }
-        }
-
-        index += 1;
-    }
-
-    return { next: index, unsupported: false };
-};
-
-const escapeHtml = (value: string): string =>
-    value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-
 const isPathWithinRoot = (rootPath: string, candidatePath: string): boolean => {
     const relativePath = relative(rootPath, candidatePath);
 
@@ -270,8 +132,6 @@ const createHex16Hash = (content: string): string =>
 
 const createFinalAssetFile = (content: string, extension: ".css" | ".js"): string => `${createHex16Hash(content)}${extension}`;
 
-const createScopedCssClassName = (css: string, hash: (input: string) => string): string => `_${hash(css)}`;
-
 const formatBuildLogs = (logs: Array<{ message?: string; name?: string }>): string => {
     if (logs.length === 0) {
         return "Bun.build failed without diagnostic logs.";
@@ -302,108 +162,6 @@ const prepareDir = async (path: string): Promise<Result<string>> => {
         (error) => fail(`Failed to create ${path}: ${getErrorMessage(error)}`),
     );
 };
-
-const readRequiredText = async (path: string): Promise<Result<string>> => {
-    const file = Bun.file(path);
-    const exists = await file.exists();
-    if (!exists) {
-        return fail(`Missing file: ${path}`);
-    }
-
-    return file.text().then(
-        (value) => ok(value),
-        (error) => fail(`Failed to read ${path}: ${getErrorMessage(error)}`),
-    );
-};
-
-const compileSvelteModule = async (path: string): Promise<Result<{ css: string; js: string }>> => {
-    const source = await readRequiredText(path);
-    if (!source.ok) {
-        return source;
-    }
-
-    return Promise.resolve()
-        .then(() =>
-            compile(source.value, {
-                css: "external",
-                cssHash: ({ css, hash }) => createScopedCssClassName(css, hash),
-                dev: false,
-                filename: path,
-                generate: "client",
-            }),
-        )
-        .then(
-            ({ css, js }) =>
-                ok({
-                    css: css?.code ?? "",
-                    js: js.code,
-                }),
-            (error) => fail(`Failed to compile ${path}: ${getErrorMessage(error)}`),
-        );
-};
-
-const createProductionEsmEnvPlugin = (): BunPlugin => ({
-    name: "production-esm-env-plugin",
-    target: "browser",
-    setup: (builder) => {
-        builder.onResolve({ filter: /^esm-env\/development$/ }, () => ({
-            namespace: "svelte-builder-virtual",
-            path: "esm-env/development",
-        }));
-
-        builder.onLoad({ filter: /^esm-env\/development$/, namespace: "svelte-builder-virtual" }, () => ({
-            contents: "export default false;",
-            loader: "js",
-        }));
-
-        builder.onLoad({ filter: /internal\/(?:client|shared)\/errors\.js$/ }, async ({ path }) => ({
-            contents: stripSvelteDiagnosticsModule(await Bun.file(path).text(), "errors"),
-            loader: "js",
-        }));
-
-        builder.onLoad({ filter: /internal\/(?:client|shared)\/warnings\.js$/ }, async ({ path }) => ({
-            contents: stripSvelteDiagnosticsModule(await Bun.file(path).text(), "warnings"),
-            loader: "js",
-        }));
-    },
-});
-
-const createSvelteRuntimeAliasPlugin = (rootDir: string): BunPlugin => ({
-    name: "svelte-runtime-alias-plugin",
-    target: "browser",
-    setup: (builder) => {
-        builder.onResolve({ filter: /^svelte(?:\/.*)?$/ }, ({ path }) => {
-            const resolvedPath = resolveSvelteBrowserImportPath(rootDir, path);
-            if (resolvedPath === null) {
-                return null;
-            }
-
-            return { path: resolvedPath };
-        });
-    },
-});
-
-export const createSveltePlugin = (cssByPath: Map<string, string>): BunPlugin => ({
-    name: "svelte-prod-plugin",
-    target: "browser",
-    setup: (builder) => {
-        builder.onLoad({ filter: /\.svelte$/ }, async ({ path }) => {
-            const compiled = await compileSvelteModule(path);
-            if (!compiled.ok) {
-                return Promise.reject(new Error(compiled.error));
-            }
-
-            if (compiled.value.css.length > 0) {
-                cssByPath.set(path, compiled.value.css);
-            }
-
-            return {
-                contents: compiled.value.js,
-                loader: "js",
-            };
-        });
-    },
-});
 
 const resolveSourcemapMode = (sourcemap: boolean | undefined): BuildConfig["sourcemap"] => (sourcemap ? "inline" : "none");
 
