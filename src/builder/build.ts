@@ -540,13 +540,13 @@ export const validateLocalSourceImportGraph = async (
         );
       }
 
-      if (!isSupportedLocalSourceModule(resolvedImport.value)) {
+      if (!isSupportedLocalSourceModule(resolvedImportPath)) {
         return err(
           `Unsupported local source module in app source tree: ${specifier} from ${currentPath}. Supported module extensions: ${formatSupportedLocalSourceModuleExtensions()}.`,
         );
       }
 
-      pending.push(resolvedImport.value);
+      pending.push(resolvedImportPath);
     }
   }
 
@@ -974,84 +974,88 @@ export const buildSvelte = async (
   if (!outDirReady.ok) return outDirReady;
 
   // 4. Generate bootstrap
-  const stageDir = join(ctx.value.rootDir, `.bsp-stage-${Date.now()}`);
+  const stageDir = join(ctx.value.rootDir, `.bsp-stage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   await mkdir(stageDir, { recursive: true });
-  const bootstrapSource = createBootstrapSource(
-    createImportPath(stageDir, ctx.value.appComponentPath),
-    ctx.value.mountId,
-  );
-  const bootstrapPath = join(stageDir, "bootstrap.ts");
-  await writeFile(bootstrapPath, bootstrapSource, "utf8");
+  try {
+    const bootstrapSource = createBootstrapSource(
+      createImportPath(stageDir, ctx.value.appComponentPath),
+      ctx.value.mountId,
+    );
+    const bootstrapPath = join(stageDir, "bootstrap.ts");
+    await writeFile(bootstrapPath, bootstrapSource, "utf8");
 
-  // 5. Bun.build directly to outDir
-  const cssByPath = new Map<string, string>();
-  const bundle = await Bun.build({
-    entrypoints: [bootstrapPath],
-    outdir: ctx.value.outDir,
-    format: "esm",
-    minify: true,
-    naming: {
-      asset: "[hash].[ext]",
-      chunk: "[hash].[ext]",
-      entry: "[hash].[ext]",
-    },
-    plugins: [
-      createSvelteRuntimeAliasPlugin(ctx.value.rootDir),
-      ctx.value.stripSvelteDiagnostics ? createProductionEsmEnvPlugin() : null,
-      createSveltePlugin(cssByPath),
-    ].filter((plugin): plugin is BunPlugin => plugin !== null),
-    sourcemap: ctx.value.sourcemap ? "inline" : ("none" as BuildConfig["sourcemap"]),
-    splitting: true,
-    target: "browser",
-  });
-  if (!bundle.success) return err(formatBuildLogs(bundle.logs));
+    // 5. Bun.build directly to outDir
+    const cssByPath = new Map<string, string>();
+    const bundle = await Bun.build({
+      entrypoints: [bootstrapPath],
+      outdir: ctx.value.outDir,
+      format: "esm",
+      minify: true,
+      naming: {
+        asset: "[hash].[ext]",
+        chunk: "[hash].[ext]",
+        entry: "[hash].[ext]",
+      },
+      plugins: [
+        createSvelteRuntimeAliasPlugin(ctx.value.rootDir),
+        ctx.value.stripSvelteDiagnostics ? createProductionEsmEnvPlugin() : null,
+        createSveltePlugin(cssByPath),
+      ].filter((plugin): plugin is BunPlugin => plugin !== null),
+      sourcemap: ctx.value.sourcemap ? "inline" : ("none" as BuildConfig["sourcemap"]),
+      splitting: true,
+      target: "browser",
+    });
+    if (!bundle.success) return err(formatBuildLogs(bundle.logs));
 
-  // 6. Clean up bootstrap temp file
-  await rm(stageDir, { force: true, recursive: true }).catch(() => undefined);
+    // 6. Clean up bootstrap temp file
+    await rm(stageDir, { force: true, recursive: true }).catch(() => undefined);
 
-  // 7. Find entry JS and chunks
-  const outputs = bundle.outputs;
-  const entryOutput = outputs.find(
-    (o) => o.kind === "entry-point" && o.path.endsWith(".js"),
-  );
-  if (!entryOutput) return err("Bun.build succeeded but emitted no JavaScript entry artifact.");
-  const entryFile = basename(entryOutput.path);
-  const chunkFiles = outputs
-    .filter((o) => o.kind === "chunk" && o.path.endsWith(".js"))
-    .map((o) => basename(o.path))
-    .sort();
+    // 7. Find entry JS and chunks
+    const outputs = bundle.outputs;
+    const entryOutput = outputs.find(
+      (o) => o.kind === "entry-point" && o.path.endsWith(".js"),
+    );
+    if (!entryOutput) return err("Bun.build succeeded but emitted no JavaScript entry artifact.");
+    const entryFile = basename(entryOutput.path);
+    const chunkFiles = outputs
+      .filter((o) => o.kind === "chunk" && o.path.endsWith(".js"))
+      .map((o) => basename(o.path))
+      .sort();
 
-  // 8. Merge CSS and write
-  const cssContent = Array.from(cssByPath.values()).join("\n");
-  const cssMinified = cssContent.length > 0 ? await minifyCss(cssContent) : "";
-  const cssFile = cssMinified.length > 0 ? `${createContentHash(cssMinified, 8)}.css` : "";
-  if (cssFile) {
-    await writeFile(join(ctx.value.outDir, cssFile), cssMinified, "utf8");
+    // 8. Merge CSS and write
+    const cssContent = Array.from(cssByPath.values()).join("\n");
+    const cssMinified = cssContent.length > 0 ? await minifyCss(cssContent) : "";
+    const cssFile = cssMinified.length > 0 ? `${createContentHash(cssMinified, 8)}.css` : "";
+    if (cssFile) {
+      await writeFile(join(ctx.value.outDir, cssFile), cssMinified, "utf8");
+    }
+
+    // 9. Generate HTML
+    const htmlFile = "index.html";
+    await writeIndexHtml(
+      ctx.value.outDir,
+      createHtmlShell(ctx.value.mountId, ctx.value.appTitle),
+      entryFile,
+      cssFile,
+    );
+
+    // 10. Copy assets
+    for (const assetsDir of ctx.value.assetsDirs) {
+      const assetsOutDir = join(ctx.value.outDir, assetsDir.dirName);
+      const copied = await copyConfiguredAssets(assetsDir.physicalPath, assetsOutDir);
+      if (!copied.ok) return copied;
+    }
+
+    return ok({
+      cssFile,
+      htmlFile,
+      jsChunkFiles: chunkFiles,
+      jsFile: entryFile,
+      outDir: ctx.value.outDir,
+    });
+  } finally {
+    await rm(stageDir, { force: true, recursive: true }).catch(() => undefined);
   }
-
-  // 9. Generate HTML
-  const htmlFile = "index.html";
-  await writeIndexHtml(
-    ctx.value.outDir,
-    createHtmlShell(ctx.value.mountId, ctx.value.appTitle),
-    entryFile,
-    cssFile,
-  );
-
-  // 10. Copy assets
-  for (const assetsDir of ctx.value.assetsDirs) {
-    const assetsOutDir = join(ctx.value.outDir, assetsDir.dirName);
-    const copied = await copyConfiguredAssets(assetsDir.physicalPath, assetsOutDir);
-    if (!copied.ok) return copied;
-  }
-
-  return ok({
-    cssFile,
-    htmlFile,
-    jsChunkFiles: chunkFiles,
-    jsFile: entryFile,
-    outDir: ctx.value.outDir,
-  });
 };
 
 export const runConfiguredBuild = async (

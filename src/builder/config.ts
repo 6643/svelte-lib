@@ -1,6 +1,8 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { ok, err, getErrorMessage, isPathWithinRoot, type Result } from "./utils";
 
 export const CONFIG_FILE_NAME = "builder.ts";
@@ -234,9 +236,18 @@ export const loadSvelteConfig = async (
     return err(`Missing config: ${configPath}`);
   }
 
-  // 直接 import 加载配置文件
+  // Use a unique temp copy to bypass Bun's per-URL module cache
+  // so config file changes are picked up on dev reload without process restart.
+  const tempConfigPath = join(
+    configRoot,
+    `.builder.ts.${randomUUID().replace(/-/g, "")}.mjs`,
+  );
   try {
-    const loaded = await import(pathToFileURL(configPath).href);
+    await Bun.write(
+      tempConfigPath,
+      await Bun.file(configPath).text(),
+    );
+    const loaded = await import(pathToFileURL(tempConfigPath).href);
     const parsed = parseBuildConfig(loaded.default, CONFIG_FILE_NAME);
     if (!parsed.ok) return parsed;
     return ok({
@@ -244,7 +255,11 @@ export const loadSvelteConfig = async (
       rootDir: configRoot,
     });
   } catch (error) {
-    return err(`Failed to load ${configPath}: ${getErrorMessage(error)}`);
+    return err(
+      `Failed to load ${configPath}: ${getErrorMessage(error)}`,
+    );
+  } finally {
+    await rm(tempConfigPath, { force: true }).catch(() => undefined);
   }
 };
 
@@ -266,10 +281,13 @@ export const resolveAppSourceRoot = (
     .split(/[\\/]/)
     .filter((segment) => segment.length > 0);
   const [topLevelDir] = segments;
-  if (topLevelDir === undefined || segments.length <= 1) {
+  if (topLevelDir === undefined) {
     return err(
       `Invalid appComponent in ${configFileName}: expected a component path inside src/ or another top-level source directory.`,
     );
+  }
+  if (segments.length === 1) {
+    return ok(rootDir);
   }
   return ok(
     topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir),
@@ -290,7 +308,9 @@ export const validateResolvedAppComponentPath = (
     }
   })();
   if (physicalPath === null) {
-    return ok(resolvedAppComponentPath);
+    return err(
+      `Invalid appComponent in ${configFileName}: file does not exist: ${resolvedAppComponentPath}.`,
+    );
   }
   if (
     !isPathWithinRoot(rootDir, physicalPath) ||
