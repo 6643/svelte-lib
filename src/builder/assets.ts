@@ -1,6 +1,6 @@
 import { cp, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { ok, fail, getErrorCode, isPathWithinRoot, type Result } from "./utils";
+import { ok, err, getErrorCode, isPathWithinRoot, type Result } from "./build";
 export type ResolvedAssetsDir = {
     dirName: string;
     physicalPath: string;
@@ -10,7 +10,7 @@ const resolvePathWithinRoot = (rootPath: string, requestedPath: string): Result<
     const resolvedPath = resolve(rootPath, requestedPath);
 
     if (!isPathWithinRoot(rootPath, resolvedPath)) {
-        return fail(`Requested asset path escapes assets root: ${requestedPath}`);
+        return err(`Requested asset path escapes assets root: ${requestedPath}`);
     }
 
     return ok(resolvedPath);
@@ -20,7 +20,7 @@ const resolvePhysicalPath = async (path: string): Promise<Result<string>> =>
     realpath(path).then(
         (value) => ok(value),
         (error: unknown) =>
-            fail(`Failed to resolve physical path ${path}: ${error instanceof Error ? error.message : String(error)}`),
+            err(`Failed to resolve physical path ${path}: ${error instanceof Error ? error.message : String(error)}`),
     );
 
 const resolvePhysicalChildPath = async (path: string): Promise<Result<string>> => {
@@ -52,10 +52,10 @@ const resolveConfiguredAssetsDir = async (
             if (code === "ENOENT" || code === "ENOTDIR") {
                 return allowMissing
                     ? ok(undefined)
-                    : fail(`Missing configured assets directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
+                    : err(`Missing configured assets directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
             }
 
-            return fail(
+            return err(
                 `Failed to inspect configured assets directory ${configuredAssetsDir} (resolved to ${resolvedDir}): ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -71,7 +71,7 @@ const resolveConfiguredAssetsDir = async (
     }
 
     if (!info.value.isDirectory()) {
-        return fail(`Configured assetsDirs entry is not a directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
+        return err(`Configured assetsDirs entry is not a directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
     }
 
     const physicalDir = await resolvePhysicalPath(resolvedDir);
@@ -107,7 +107,7 @@ export const resolveConfiguredAssetsDirs = async (
 
     const configuredAssetsDirs = assetsDirs;
     if (!Array.isArray(configuredAssetsDirs)) {
-        return fail("Invalid assetsDirs in builder.ts: expected string array.");
+        return err("Invalid assetsDirs in builder.ts: expected string array.");
     }
 
     const resolvedEntries: ResolvedAssetsDir[] = [];
@@ -115,7 +115,7 @@ export const resolveConfiguredAssetsDirs = async (
 
     for (const configuredAssetsDir of configuredAssetsDirs) {
         if (typeof configuredAssetsDir !== "string") {
-            return fail("Invalid assetsDirs in builder.ts: expected string array.");
+            return err("Invalid assetsDirs in builder.ts: expected string array.");
         }
 
         const resolvedDir = await resolveConfiguredAssetsDir(rootDir, configuredAssetsDir);
@@ -129,7 +129,7 @@ export const resolveConfiguredAssetsDirs = async (
 
         const dirName = basename(resolvedDir.value);
         if (seenDirNames.has(dirName)) {
-            return fail(`Duplicate assets directory name in builder.ts: ${dirName}`);
+            return err(`Duplicate assets directory name in builder.ts: ${dirName}`);
         }
 
         seenDirNames.add(dirName);
@@ -157,7 +157,7 @@ export const resolvePhysicalAssetPath = async (assetsRoot: string, requestedPath
     }
 
     if (!isPathWithinRoot(assetsRoot, physicalPath.value)) {
-        return fail(`Requested asset path resolves outside assets root: ${requestedPath}`);
+        return err(`Requested asset path resolves outside assets root: ${requestedPath}`);
     }
 
     return ok(physicalPath.value);
@@ -165,11 +165,11 @@ export const resolvePhysicalAssetPath = async (assetsRoot: string, requestedPath
 
 const validateAssetCopyRoots = (assetsRoot: string, assetsOutDir: string): Result<void> => {
     if (isPathWithinRoot(assetsRoot, assetsOutDir)) {
-        return fail(`Configured assets directory overlaps the build output tree: ${assetsOutDir}`);
+        return err(`Configured assets directory overlaps the build output tree: ${assetsOutDir}`);
     }
 
     if (isPathWithinRoot(assetsOutDir, assetsRoot)) {
-        return fail(`Configured assets directory overlaps the build output tree: ${assetsRoot}`);
+        return err(`Configured assets directory overlaps the build output tree: ${assetsRoot}`);
     }
 
     return ok(undefined);
@@ -195,7 +195,7 @@ export const copyConfiguredAssets = async (assetsRoot: string, assetsOutDir: str
       recursive: true,
     }).then(
       () => ok(assetsOutDir),
-      (error) => fail(`Failed to copy assets: ${error instanceof Error ? error.message : String(error)}`),
+      (error) => err(`Failed to copy assets: ${error instanceof Error ? error.message : String(error)}`),
     );
     if (!copied.ok) {
         return copied;

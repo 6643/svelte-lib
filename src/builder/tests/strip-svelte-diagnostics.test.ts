@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { buildSvelte } from "../build";
-import { stripSvelteDiagnosticsModule } from "../strip-svelte-diagnostics";
+import { stripSvelteDiagnosticsModule } from "../build";
 
 const tempDirs: string[] = [];
 

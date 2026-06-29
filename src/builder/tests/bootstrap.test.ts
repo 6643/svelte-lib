@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createBootstrapSource, createImportPath } from "../bootstrap";
+import { createBootstrapSource, createImportPath } from "../build";
 
 describe("bootstrap", () => {
   describe("createImportPath", () => {

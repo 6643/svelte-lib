@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { shouldProcessDevWatchEvent, formatDevWatcherIssue } from "../dev-reload";
+import { shouldProcessDevWatchEvent, formatDevWatcherIssue } from "../dev";
 
 describe("dev-reload", () => {
     describe("shouldProcessDevWatchEvent", () => {

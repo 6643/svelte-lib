@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createProductionEsmEnvPlugin, createSvelteRuntimeAliasPlugin, createSveltePlugin } from "../build-plugins";
+import { createProductionEsmEnvPlugin, createSvelteRuntimeAliasPlugin, createSveltePlugin } from "../build";
 
 test("createProductionEsmEnvPlugin returns a BunPlugin with correct name", () => {
     const plugin = createProductionEsmEnvPlugin();

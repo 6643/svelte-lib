@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createRuntimeModuleSource } from "../runtime";
+import { createRuntimeModuleSource } from "../build";
 
 describe("runtime", () => {
   it("should generate runtime source with default mount id", () => {
