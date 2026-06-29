@@ -10,11 +10,13 @@ import {
 import {
   cp,
   mkdir,
+  mkdtemp,
   readFile,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 import {
   basename,
@@ -781,7 +783,8 @@ const createContentHash = (content: string, length: number): string =>
   new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, length);
 
 const minifyCss = async (content: string): Promise<string> => {
-  const tempFile = join("/tmp", `svelte-lib-css-${Math.random().toString(36).slice(2)}.css`);
+  const tmpDir = await mkdtemp(join(tmpdir(), "svelte-lib-css-"));
+  const tempFile = join(tmpDir, "input.css");
   try {
     await writeFile(tempFile, content, "utf8");
     const result = await Bun.build({
@@ -795,7 +798,7 @@ const minifyCss = async (content: string): Promise<string> => {
   } catch {
     return content;
   } finally {
-    await rm(tempFile, { force: true }).catch(() => undefined);
+    await rm(tmpDir, { force: true, recursive: true }).catch(() => undefined);
   }
 };
 
@@ -974,8 +977,7 @@ export const buildSvelte = async (
   if (!outDirReady.ok) return outDirReady;
 
   // 4. Generate bootstrap
-  const stageDir = join(ctx.value.rootDir, `.bsp-stage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-  await mkdir(stageDir, { recursive: true });
+  const stageDir = await mkdtemp(join(ctx.value.rootDir, ".bsp-stage-"));
   try {
     const bootstrapSource = createBootstrapSource(
       createImportPath(stageDir, ctx.value.appComponentPath),

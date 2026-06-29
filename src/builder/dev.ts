@@ -1356,12 +1356,15 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
                     return new Response("Not Found", { status: 404 });
                 }
 
-                const assetFile = Bun.file(resolvedAssetPath.value);
-                if (!statSync(resolvedAssetPath.value).isFile()) {
+                const assetStat = statSync(resolvedAssetPath.value);
+                if (!assetStat.isFile()) {
                     return new Response("Not Found", { status: 404 });
                 }
 
-                return new Response(assetFile);
+                const fileContent = await Bun.file(resolvedAssetPath.value).arrayBuffer();
+                return new Response(fileContent, {
+                    headers: { "Content-Type": "application/octet-stream" },
+                });
             }
 
             if (rawPathname.startsWith("/_node_modules/")) {
@@ -1385,7 +1388,7 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
                     });
                 }
 
-                const nodeModuleFile = Bun.file(resolvedNodeModulePath.value.filePath);
+                const nodeModuleFile = Bun.file(resolvedNodeModulePath.value.resolvedPath);
                 if (!(await nodeModuleFile.exists())) {
                     return new Response("Not Found", { status: 404 });
                 }
