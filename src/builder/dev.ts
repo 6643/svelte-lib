@@ -1,42 +1,1108 @@
 #!/usr/bin/env bun
 
 import { randomInt } from "node:crypto";
-import { realpathSync, statSync, type FSWatcher } from "node:fs";
-import { join } from "node:path";
+
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
+
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { gzipSync } from "node:zlib";
+import { compile } from "svelte/compiler";
 import type { ErrorLike, Server } from "bun";
+
 import {
     createHtmlShell,
-    type BuildSvelteOptions,
-    type Result,
     loadSvelteConfig,
+    ok,
+    err,
+    getErrorMessage,
+    getErrorCode,
+    escapeHtml,
+    createBootstrapSource,
+    createImportPath,
+    isSupportedLocalSourceModule,
+    isSupportedSvelteSourceModule,
+    isSupportedJavaScriptSourceModule,
+    isSupportedTypeScriptSourceModule,
+    normalizeModulePath,
+    resolveAppSourceRoot,
+    resolveConfiguredPath,
+    validateLocalSourceImportGraph,
+    validateResolvedAppComponentPath,
+    validateSvelteBrowserImportAliases,
+    type Result,
+    type BuildSvelteOptions,
 } from "./build";
-import { createBootstrapSource, createImportPath } from "./bootstrap";
-import { resolvePhysicalAssetPath } from "./assets";
-import { deriveDevRuntimeState, type DevRuntimeState } from "./dev-config";
-import { resolveDevStaticAssetRequest } from "./dev-assets";
-import { DEV_SPECIAL_IMPORTS, resolveBareImportPathForDev } from "./dev-imports";
-import { createDevReloadHub, createSSEResponse, type DevReloadHub } from "./dev-reload";
-import { ok, fail, getErrorMessage, getErrorCode } from "./utils";
-import { escapeHtml } from "./import-utils";
-import {
-    createDevCompileCache,
-    createDevCompileCacheKey,
-    createDevModuleErrorResponse,
-    isCompilableDevModule,
-    loadDevModule,
-    compileChangedDevAsset,
-    type DevCompileCache,
-} from "./dev-compile";
-import { isSupportedLocalSourceModule } from "./source-modules";
-import { getRawRequestPathname, isPathInsideRoot, resolveDevRequestPath, resolveDevNodeModuleRequestPath, findNodeModulesRoot } from "./dev-router";
+
+import { resolveConfiguredAssetsDirs, resolvePhysicalAssetPath, type ResolvedAssetsDir } from "./assets";
+import { formatAssetReport } from "./report";
+
+// ---- Types ----
+
+type DevCompileCacheEntry = {
+    contents: string;
+    mtimeMs: number;
+};
+
+export type DevCompileCache = {
+    invalidate: (cacheKey: string) => void;
+    read: (cacheKey: string, mtimeMs: number) => string | undefined;
+    write: (cacheKey: string, mtimeMs: number, contents: string) => void;
+};
+
+// ---- Logging ----
+
+const createRecompiledAssetReport = (modulePath: string, contents: string): string =>
+    formatAssetReport(
+        "Recompiled assets",
+        [
+            {
+                file: modulePath,
+                gzip: gzipSync(contents).byteLength,
+                size: Buffer.byteLength(contents),
+                time: new Date().toISOString().replace("T", " ").slice(0, 19),
+            },
+        ],
+        { includeTime: true },
+    );
+
+const logRecompiledAsset = (modulePath: string, contents: string): void => {
+    console.log(createRecompiledAssetReport(modulePath, contents));
+};
+
+// ---- Cache ----
+
+export const createDevCompileCache = (): DevCompileCache => {
+    const entries = new Map<string, DevCompileCacheEntry>();
+
+    return {
+        invalidate: (cacheKey) => {
+            entries.delete(cacheKey);
+        },
+        read: (cacheKey, mtimeMs) => {
+            const entry = entries.get(cacheKey);
+            if (entry === undefined || entry.mtimeMs !== mtimeMs) {
+                return undefined;
+            }
+
+            return entry.contents;
+        },
+        write: (cacheKey, mtimeMs, contents) => {
+            entries.set(cacheKey, { contents, mtimeMs });
+        },
+    };
+};
+
+export const createDevCompileCacheKey = (rootDir: string, modulePath: string): string =>
+    normalizeModulePath(join(rootDir, modulePath));
+
+// ---- File reading ----
+
+export const loadRequiredText = async (path: string): Promise<Result<string>> => {
+    const file = Bun.file(path);
+    const exists = await file.exists();
+    if (!exists) {
+        return err(`Missing file: ${path}`);
+    }
+
+    return file.text().then(
+        (value) => ok(value),
+        (error) => err(`Failed to read ${path}: ${getErrorMessage(error)}`),
+    );
+};
+
+// ---- CSS injection ----
+
+export const createCssInjection = (modulePath: string, cssCode: string | undefined): string => {
+    if (!cssCode) {
+        return "";
+    }
+
+    return [
+        "(() => {",
+        `    const id = ${JSON.stringify(modulePath)};`,
+        `    if (!document.querySelector(\`style[data-svelte-id="\${id}"]\`)) {`,
+        `        const style = document.createElement("style");`,
+        `        style.setAttribute("data-svelte-id", id);`,
+        `        style.textContent = ${JSON.stringify(cssCode)};`,
+        `        document.head.appendChild(style);`,
+        "    }",
+        "})();",
+    ].join("\n");
+};
+
+// ---- Compilation ----
+
+const tsTranspiler = new Bun.Transpiler({ loader: "ts" });
+
+export const compileSvelteForDev = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
+    const source = await loadRequiredText(join(rootDir, modulePath));
+    if (!source.ok) {
+        return source;
+    }
+
+    return Promise.resolve()
+        .then(() =>
+            compile(source.value, {
+                dev: true,
+                filename: modulePath,
+                generate: "client",
+            }),
+        )
+        .then(
+            ({ css, js }) => {
+                const contents = js.code + createCssInjection(modulePath, css?.code);
+                return rewriteBareImportsForDev(contents, join(rootDir, modulePath)).then((rewritten: Result<string>) => {
+                    if (!rewritten.ok) {
+                        return rewritten;
+                    }
+
+                    if (shouldLog) {
+                        logRecompiledAsset(modulePath, rewritten.value);
+                    }
+
+                    return ok(rewritten.value);
+                });
+            },
+            (error) => err(`Failed to compile ${modulePath}: ${getErrorMessage(error)}`),
+        );
+};
+
+export const transpileTypeScriptForDev = async (
+    rootDir: string,
+    modulePath: string,
+    shouldLog = false,
+): Promise<Result<string>> => {
+    const source = await loadRequiredText(join(rootDir, modulePath));
+    if (!source.ok) {
+        return source;
+    }
+
+    return Promise.resolve()
+        .then(() => {
+            const transformed = tsTranspiler.transformSync(source.value);
+            return rewriteBareImportsForDev(transformed, join(rootDir, modulePath)).then((rewritten: Result<string>) => {
+                if (!rewritten.ok) {
+                    return rewritten;
+                }
+
+                if (shouldLog) {
+                    logRecompiledAsset(modulePath, rewritten.value);
+                }
+
+                return ok(rewritten.value);
+            });
+        })
+        .catch((error: unknown) => err(`Failed to transpile ${modulePath}: ${getErrorMessage(error)}`));
+};
+
+// ---- Module loading ----
+
+export const isCompilableDevModule = (filePath: string): boolean => isSupportedLocalSourceModule(filePath);
+
+const getDevModuleMtime = (rootDir: string, modulePath: string): Result<number> => {
+    try {
+        return ok(statSync(join(rootDir, modulePath)).mtimeMs);
+    } catch (error) {
+        return err(`Missing file: ${join(rootDir, modulePath)} (${getErrorMessage(error)})`);
+    }
+};
+
+const loadUncachedDevModule = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
+    if (isSupportedSvelteSourceModule(modulePath)) {
+        return compileSvelteForDev(rootDir, modulePath, shouldLog);
+    }
+
+    if (isSupportedJavaScriptSourceModule(modulePath)) {
+        const source = await loadRequiredText(join(rootDir, modulePath));
+        if (!source.ok) {
+            return source;
+        }
+
+        const rewritten = await rewriteBareImportsForDev(source.value, join(rootDir, modulePath));
+        if (!rewritten.ok) {
+            return rewritten;
+        }
+
+        if (shouldLog) {
+            logRecompiledAsset(modulePath, rewritten.value);
+        }
+
+        return ok(rewritten.value);
+    }
+
+    if (isSupportedTypeScriptSourceModule(modulePath)) {
+        return transpileTypeScriptForDev(rootDir, modulePath, shouldLog);
+    }
+
+    return err(`Unsupported dev module: ${modulePath}`);
+};
+
+export const loadDevModule = async (
+    rootDir: string,
+    modulePath: string,
+    cache: DevCompileCache,
+    allowedRoots?: string[],
+    shouldLog = false,
+): Promise<Result<string>> => {
+    if (allowedRoots !== undefined && isCompilableDevModule(modulePath)) {
+        const validatedImportGraph = await validateLocalSourceImportGraph(join(rootDir, modulePath), allowedRoots);
+        if (!validatedImportGraph.ok) {
+            return validatedImportGraph;
+        }
+    }
+
+    const mtime = getDevModuleMtime(rootDir, modulePath);
+    if (!mtime.ok) {
+        return mtime;
+    }
+
+    const cacheKey = createDevCompileCacheKey(rootDir, modulePath);
+    const cached = cache.read(cacheKey, mtime.value);
+    if (cached !== undefined) {
+        return ok(cached);
+    }
+
+    const loaded = await loadUncachedDevModule(rootDir, modulePath, shouldLog);
+    if (!loaded.ok) {
+        return loaded;
+    }
+
+    cache.write(cacheKey, mtime.value, loaded.value);
+    return loaded;
+};
+
+export const compileChangedDevAsset = async (
+    rootDir: string,
+    modulePath: string,
+    cache: DevCompileCache,
+    allowedRoots: string[],
+): Promise<void> => {
+    cache.invalidate(createDevCompileCacheKey(rootDir, modulePath));
+    const compiled = await loadDevModule(rootDir, modulePath, cache, allowedRoots, true);
+    if (!compiled.ok) {
+        console.error(compiled.error);
+    }
+};
+
+// ---- Error responses ----
+
+const createInternalServerErrorResponse = (): Response => new Response("Internal Server Error", { status: 500 });
+
+const createNotFoundResponse = (): Response => new Response("Not Found", { status: 404 });
+
+export const createDevModuleErrorResponse = (error: string): Response => {
+    if (error.startsWith("Missing file:")) {
+        return createNotFoundResponse();
+    }
+
+    console.error(error);
+    return createInternalServerErrorResponse();
+};
+
+export const getRawRequestPathname = (requestUrl: string): string => {
+    const schemeIndex = requestUrl.indexOf("://");
+    const pathnameStart = schemeIndex === -1 ? requestUrl.indexOf("/") : requestUrl.indexOf("/", schemeIndex + 3);
+    const pathnameWithQuery = pathnameStart === -1 ? "/" : requestUrl.slice(pathnameStart);
+    const queryStart = pathnameWithQuery.search(/[?#]/);
+
+    return queryStart === -1 ? pathnameWithQuery : pathnameWithQuery.slice(0, queryStart);
+};
+
+export const isPathInsideRoot = (rootDir: string, targetPath: string): boolean => {
+    const relativePath = relative(rootDir, targetPath);
+
+    return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
+};
+
+export const resolveDevRequestPath = async (
+    rootDir: string,
+    rawPathname: string,
+    prefix: string,
+): Promise<Result<{ filePath: string; modulePath: string; resolvedPath: string }>> => {
+    const encodedPath = prefix === "/" ? rawPathname.slice(1) : rawPathname.slice(prefix.length);
+    let decodedPath: string;
+
+    try {
+        decodedPath = decodeURIComponent(encodedPath);
+    } catch {
+        return err("Rejected path");
+    }
+
+    const segments: string[] = [];
+    for (const segment of decodedPath.replace(/\\/g, "/").split("/")) {
+        if (segment.length === 0 || segment === ".") {
+            continue;
+        }
+
+        if (segment === "..") {
+            return err("Rejected path");
+        }
+
+        segments.push(segment);
+    }
+
+    if (segments.length === 0) {
+        return err("Rejected path");
+    }
+
+    const modulePath = segments.join("/");
+    const filePath = join(rootDir, modulePath);
+    const pathStatus = (() => {
+        try {
+            return lstatSync(filePath);
+        } catch {
+            return undefined;
+        }
+    })();
+
+    if (pathStatus?.isSymbolicLink()) {
+        try {
+            const realRootDir = realpathSync(rootDir);
+            const realFilePath = realpathSync(filePath);
+            if (!isPathInsideRoot(realRootDir, realFilePath)) {
+                return err("Rejected path");
+            }
+
+            return ok({ filePath, modulePath, resolvedPath: realFilePath });
+        } catch {
+            return err("Rejected path");
+        }
+    }
+
+    if (!(await Bun.file(filePath).exists())) {
+        return ok({ filePath, modulePath, resolvedPath: filePath });
+    }
+
+    const realRootDir = realpathSync(rootDir);
+    const realFilePath = realpathSync(filePath);
+    if (!isPathInsideRoot(realRootDir, realFilePath)) {
+        return err("Rejected path");
+    }
+
+    return ok({ filePath, modulePath, resolvedPath: realFilePath });
+};
+
+const getNodeModulePackageNameSegments = (segments: string[]): string[] => {
+    if (segments[0]?.startsWith("@")) {
+        return segments.length >= 2 ? segments.slice(0, 2) : [];
+    }
+
+    return segments.length >= 1 ? segments.slice(0, 1) : [];
+};
+
+export const resolveDevNodeModuleRequestPath = async (
+    nodeModulesRoot: string,
+    rawPathname: string,
+): Promise<Result<{ filePath: string; modulePath: string; packageRoot: string; resolvedPath: string }>> => {
+    const encodedPath = rawPathname.slice("/_node_modules/".length);
+    let decodedPath: string;
+
+    try {
+        decodedPath = decodeURIComponent(encodedPath);
+    } catch {
+        return err("Rejected path");
+    }
+
+    const segments: string[] = [];
+    for (const segment of decodedPath.replace(/\\/g, "/").split("/")) {
+        if (segment.length === 0 || segment === ".") {
+            continue;
+        }
+
+        if (segment === "..") {
+            return err("Rejected path");
+        }
+
+        segments.push(segment);
+    }
+
+    const packageNameSegments = getNodeModulePackageNameSegments(segments);
+    if (packageNameSegments.length === 0 || segments.length <= packageNameSegments.length) {
+        return err("Rejected path");
+    }
+
+    const packagePath = join(nodeModulesRoot, ...packageNameSegments);
+    let packageRoot: string;
+    try {
+        packageRoot = dirname(realpathSync(join(packagePath, "package.json")));
+    } catch {
+        return err("Rejected path");
+    }
+
+    const moduleSegments = segments.slice(packageNameSegments.length);
+    const modulePath = moduleSegments.join("/");
+    const filePath = join(packagePath, modulePath);
+
+    if (!(await Bun.file(filePath).exists())) {
+        return ok({ filePath, modulePath, packageRoot, resolvedPath: filePath });
+    }
+
+    let resolvedPath: string;
+    try {
+        resolvedPath = realpathSync(filePath);
+    } catch {
+        return err("Rejected path");
+    }
+
+    if (!isPathInsideRoot(packageRoot, resolvedPath)) {
+        return err("Rejected path");
+    }
+
+    return ok({ filePath, modulePath, packageRoot, resolvedPath });
+};
+
+export const findNodeModulesRoot = async (startDir: string): Promise<Result<string>> => {
+    let current = startDir;
+    let fallback: string | undefined;
+
+    while (true) {
+        const candidate = join(current, "node_modules", "svelte", "package.json");
+        if (await Bun.file(candidate).exists()) {
+            const nodeModulesDir = join(current, "node_modules");
+            if (existsSync(join(nodeModulesDir, ".bun"))) {
+                return ok(nodeModulesDir);
+            }
+
+            fallback ??= nodeModulesDir;
+        }
+
+        const parent = dirname(current);
+        if (parent === current) {
+            return fallback === undefined ? err(`Unable to locate node_modules from ${startDir}`) : ok(fallback);
+        }
+
+        current = parent;
+    }
+};
+
+export type DevWatchRoot = {
+    path: string;
+    recursive: boolean;
+};
+
+export type DevWatchTarget =
+    { kind: "config" } | { kind: "directory"; path: string } | { kind: "ignore" } | { kind: "module"; modulePath: string };
+
+export type DevReloadHub<TCache> = {
+    cache: TCache;
+    emit: (data: string) => void;
+    reconfigure: (watchRoots: DevWatchRoot[]) => void;
+    stop: () => void;
+    subscribe: (listener: (data: string) => void) => () => void;
+};
+
+const DEV_CONFIG_FILE_NAME = "builder.ts";
+const DEV_WATCH_DEBOUNCE_MS = 100;
+const EXCLUDED_DIRS = ["node_modules", ".git", "dist"];
+
+const isExcludedWatchDirectory = (dirName: string): boolean => EXCLUDED_DIRS.includes(dirName);
+
+const getWatcherErrorCode = (error: unknown): string | undefined =>
+    typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : undefined;
+
+const isIgnorableDevWatcherError = (error: unknown): boolean => {
+    const errorCode = getWatcherErrorCode(error);
+    return errorCode === "ENOENT" || errorCode === "ENOTDIR";
+};
+
+export const classifyDevWatchTarget = ({
+    eventPath,
+    fileStatus,
+    filename,
+    watchDir,
+}: {
+    eventPath: string;
+    fileStatus: "directory" | "file" | "missing" | "other";
+    filename: string;
+    watchDir: string;
+}): DevWatchTarget => {
+    const relativePath = relative(watchDir, eventPath);
+    if (relativePath.startsWith("..") || relativePath.length === 0) {
+        return { kind: "ignore" };
+    }
+
+    if (relativePath === DEV_CONFIG_FILE_NAME) {
+        return { kind: "config" };
+    }
+
+    if (fileStatus === "directory") {
+        if (!isExcludedWatchDirectory(filename) && !filename.startsWith(".")) {
+            return { kind: "directory", path: eventPath };
+        }
+
+        return { kind: "ignore" };
+    }
+
+    if (fileStatus === "file" || fileStatus === "missing") {
+        return isCompilableDevModule(relativePath) ? { kind: "module", modulePath: relativePath } : { kind: "ignore" };
+    }
+
+    return { kind: "ignore" };
+};
+
+export const formatDevWatcherIssue = (context: string, error: unknown): string | undefined => {
+    if (isIgnorableDevWatcherError(error)) {
+        return undefined;
+    }
+
+    return `[svelte-dev] ${context}: ${getErrorMessage(error)}`;
+};
+
+const reportDevWatcherIssue = (context: string, error: unknown): void => {
+    const issue = formatDevWatcherIssue(context, error);
+    if (issue !== undefined) {
+        console.warn(issue);
+    }
+};
+
+export const attachDevWatcherErrorHandler = (
+    watcher: { on: (event: string, handler: (error: unknown) => void) => unknown },
+    context: string,
+): void => {
+    watcher.on("error", (error) => {
+        reportDevWatcherIssue(context, error);
+    });
+};
+
+export const shouldProcessDevWatchEvent = (
+    recentEvents: Map<string, number>,
+    modulePath: string,
+    now = Date.now(),
+): boolean => {
+    const previous = recentEvents.get(modulePath);
+    recentEvents.set(modulePath, now);
+
+    if (previous !== undefined && now - previous < DEV_WATCH_DEBOUNCE_MS) {
+        return false;
+    }
+
+    for (const [path, timestamp] of recentEvents) {
+        if (now - timestamp >= DEV_WATCH_DEBOUNCE_MS) {
+            recentEvents.delete(path);
+        }
+    }
+
+    return true;
+};
+
+export const createDevReloadHub = <TCache>(
+    watchDir: string,
+    watchRoots: DevWatchRoot[],
+    cache: TCache,
+    compileChangedModule: (modulePath: string, allowedRoots: string[]) => Promise<void>,
+    onConfigFileChange?: () => void | Promise<void>,
+): DevReloadHub<TCache> => {
+    const watchers: { close: () => void }[] = [];
+    const listeners = new Set<(data: string) => void>();
+    const recentEvents = new Map<string, number>();
+    const watchedDirs = new Set<string>();
+    let recursiveWatchRoots = new Set(watchRoots.filter((root) => root.recursive).map((root) => root.path));
+    let allowedRoots = Array.from(
+        new Set(
+            watchRoots
+                .filter((root) => root.recursive)
+                .map((root) => {
+                    try {
+                        return realpathSync(root.path);
+                    } catch {
+                        return root.path;
+                    }
+                }),
+        ),
+    );
+
+    const stopWatchers = (): void => {
+        watchers.forEach((watcher) => watcher.close());
+        watchers.length = 0;
+        watchedDirs.clear();
+    };
+
+    const stop = (): void => {
+        stopWatchers();
+        listeners.clear();
+    };
+
+    const notify = (data: string): void => {
+        for (const listener of listeners) {
+            listener(data);
+        }
+    };
+
+    const isWatchableDirectory = (path: string): boolean => {
+        const entry = lstatSync(path);
+        return entry.isDirectory() && !entry.isSymbolicLink();
+    };
+
+    const getFileStatus = (modulePath: string): "directory" | "file" | "missing" | "other" => {
+        try {
+            const entry = lstatSync(modulePath);
+            if (entry.isDirectory()) return "directory";
+            if (entry.isFile()) return "file";
+            return "other";
+        } catch (error) {
+            return isIgnorableDevWatcherError(error)
+                ? "missing"
+                : (() => {
+                      throw error;
+                  })();
+        }
+    };
+
+    const handleWatchEvent = (dir: string, filename: string, recursive: boolean) => {
+        const modulePath = join(dir, filename);
+        const fileStatus = getFileStatus(modulePath);
+        const target = classifyDevWatchTarget({ eventPath: modulePath, fileStatus, filename, watchDir: dir });
+
+        if (target.kind === "config") {
+            void Promise.resolve(onConfigFileChange?.()).catch((error: unknown) => {
+                console.error(getErrorMessage(error));
+            });
+            return;
+        }
+
+        if (target.kind === "directory") {
+            if (recursive || recursiveWatchRoots.has(target.path)) {
+                watchDirectory(target.path, true);
+            }
+            return;
+        }
+
+        if (target.kind !== "module") return;
+
+        if (!shouldProcessDevWatchEvent(recentEvents, target.modulePath)) return;
+
+        notify("reload");
+        void compileChangedModule(target.modulePath, allowedRoots);
+    };
+
+    const watchDirectory = (dir: string, recursive: boolean) => {
+        if (watchedDirs.has(dir)) return;
+
+        watchedDirs.add(dir);
+        try {
+            const watcher = watch(dir, (_eventType: unknown, filename: string | null) => {
+                if (typeof filename !== "string" || filename.length === 0) {
+                    notify("reload");
+                    return;
+                }
+
+                try {
+                    handleWatchEvent(dir, filename, recursive);
+                } catch (error) {
+                    reportDevWatcherIssue(`watch event for ${join(dir, filename)}`, error);
+                }
+            });
+            attachDevWatcherErrorHandler(watcher, `watch runtime for ${dir}`);
+            watchers.push(watcher);
+
+            if (recursive) {
+                for (const file of readdirSync(dir)) {
+                    const fullPath = join(dir, file);
+                    if (isWatchableDirectory(fullPath) && !isExcludedWatchDirectory(file) && !file.startsWith(".")) {
+                        watchDirectory(fullPath, true);
+                    }
+                }
+            }
+        } catch (error) {
+            watchedDirs.delete(dir);
+            reportDevWatcherIssue(`watch setup for ${dir}`, error);
+        }
+    };
+
+    const reconfigure = (nextWatchRoots: DevWatchRoot[]): void => {
+        stopWatchers();
+        recentEvents.clear();
+
+        recursiveWatchRoots = new Set(nextWatchRoots.filter((root) => root.recursive).map((root) => root.path));
+        allowedRoots = Array.from(
+            new Set(
+                nextWatchRoots
+                    .filter((root) => root.recursive)
+                    .map((root) => {
+                        try {
+                            return realpathSync(root.path);
+                        } catch {
+                            return root.path;
+                        }
+                    }),
+            ),
+        );
+
+        nextWatchRoots.forEach((root) => watchDirectory(root.path, root.recursive));
+    };
+
+    reconfigure(watchRoots);
+
+    return {
+        cache,
+        emit: notify,
+        reconfigure,
+        stop,
+        subscribe: (listener) => {
+            listeners.add(listener);
+            return () => {
+                listeners.delete(listener);
+            };
+        },
+    };
+};
+
+export const createSSEResponse = <TCache>(hub: DevReloadHub<TCache>, signal: AbortSignal): Response => {
+    const listeners: Array<() => void> = [];
+
+    const stream = new ReadableStream({
+        start: (controller) => {
+            const send = (data: string) => controller.enqueue(`data: ${data}\n\n`);
+            const timer = setInterval(() => controller.enqueue(":heartbeat\n\n"), 15000);
+
+            const cleanup = () => {
+                clearInterval(timer);
+                listeners.forEach((unsubscribe) => unsubscribe());
+                try {
+                    if (controller.desiredSize !== null) {
+                        controller.close();
+                    }
+                } catch {}
+            };
+
+            signal.addEventListener("abort", cleanup);
+            listeners.push(hub.subscribe((data) => send(data)));
+        },
+    });
+
+    return new Response(stream, {
+        headers: {
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+            "Content-Type": "text/event-stream",
+        },
+    });
+};
+
+export const resolveDevStaticAssetRequest = (
+    assetsDirs: ResolvedAssetsDir[],
+    pathname: string,
+): { physicalRoot: string; requestedPath: string } | null => {
+    const segments = pathname.split("/").filter((segment) => segment.length > 0);
+    const [dirName, ...pathSegments] = segments;
+    if (!dirName || pathSegments.length === 0) {
+        return null;
+    }
+
+    const matchingAssetsDir = assetsDirs.find((entry) => entry.dirName === dirName);
+    if (!matchingAssetsDir) {
+        return null;
+    }
+
+    return {
+        physicalRoot: matchingAssetsDir.physicalPath,
+        requestedPath: pathSegments.join("/"),
+    };
+};
+
+type DevRuntimeState = {
+    appComponentPath: string;
+    appTitle: string;
+    assetsDirs: ResolvedAssetsDir[];
+    mountId: string;
+    sourcePathPrefix: string | undefined;
+    sourceRoot: string;
+    watchRoots: DevWatchRoot[];
+};
+
+const createSourcePathPrefix = (rootDir: string, sourceRoot: string): string | undefined => {
+    const relativeSourceRoot = normalizeModulePath(relative(rootDir, sourceRoot));
+    if (relativeSourceRoot.length === 0 || relativeSourceRoot === ".") {
+        return undefined;
+    }
+
+    return `/${relativeSourceRoot}/`;
+};
+
+const resolveDevSourceRoot = (rootDir: string, appComponentPath: string): string => {
+    const relativeAppComponentPath = relative(rootDir, appComponentPath);
+    const segments = relativeAppComponentPath.split(/[\\/]/).filter((segment) => segment.length > 0);
+    const [topLevelDir] = segments;
+
+    if (topLevelDir === undefined || segments.length <= 1) {
+        return dirname(appComponentPath);
+    }
+
+    return topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir);
+};
+
+export const resolveDevWatchRoots = (
+    rootDir: string,
+    assetsDirs: ResolvedAssetsDir[],
+    appComponentPath: string,
+): DevWatchRoot[] => {
+    const sourceRoot = resolveDevSourceRoot(rootDir, appComponentPath);
+    const roots = new Map<string, DevWatchRoot>();
+    const addRoot = (path: string, recursive: boolean) => {
+        const existing = roots.get(path);
+        if (existing !== undefined) {
+            roots.set(path, { path, recursive: existing.recursive || recursive });
+            return;
+        }
+
+        roots.set(path, { path, recursive });
+    };
+
+    addRoot(rootDir, false);
+    addRoot(sourceRoot, true);
+    assetsDirs.forEach((assetsDir) => addRoot(assetsDir.physicalPath, true));
+
+    return Array.from(roots.values()).sort(
+        (left, right) => Number(left.recursive) - Number(right.recursive) || left.path.localeCompare(right.path),
+    );
+};
+
+export const deriveDevRuntimeState = async (
+    config: BuildSvelteOptions,
+    cwd = process.cwd(),
+): Promise<Result<DevRuntimeState>> => {
+    const rootDir = config.rootDir ?? cwd;
+    const mountId = config.mountId ?? "app";
+    const appTitle = config.appTitle ?? "Svelte Builder";
+    const appComponentPath = resolveConfiguredPath(rootDir, config.appComponent, "src/App.svelte");
+    const sourceRoot = resolveAppSourceRoot(rootDir, appComponentPath);
+    if (!sourceRoot.ok) {
+        return sourceRoot;
+    }
+
+    const appComponentExists = await Bun.file(appComponentPath).exists();
+    if (!appComponentExists) {
+        return err(`Missing SPA app component: ${appComponentPath}`);
+    }
+
+    const validatedAppComponentPath = validateResolvedAppComponentPath(rootDir, sourceRoot.value, appComponentPath);
+    if (!validatedAppComponentPath.ok) {
+        return validatedAppComponentPath;
+    }
+
+    const validatedImportGraph = await validateLocalSourceImportGraph(appComponentPath, [realpathSync(sourceRoot.value)]);
+    if (!validatedImportGraph.ok) {
+        return validatedImportGraph;
+    }
+
+    const validatedRuntimeAliases = await validateSvelteBrowserImportAliases(rootDir);
+    if (!validatedRuntimeAliases.ok) {
+        return validatedRuntimeAliases;
+    }
+
+    const assetsDirs = await resolveConfiguredAssetsDirs(rootDir, config.assetsDirs, "assets");
+    if (!assetsDirs.ok) {
+        return assetsDirs;
+    }
+
+    return ok({
+        appComponentPath,
+        appTitle,
+        assetsDirs: assetsDirs.value,
+        mountId,
+        sourcePathPrefix: createSourcePathPrefix(rootDir, sourceRoot.value),
+        sourceRoot: sourceRoot.value,
+        watchRoots: resolveDevWatchRoots(rootDir, assetsDirs.value, appComponentPath),
+    });
+};
+
+export type { DevRuntimeState };
+
+export const DEV_SPECIAL_IMPORTS = {
+    "esm-env": "/_virtual/esm-env.js",
+    svelte: "/_node_modules/svelte/src/index-client.js",
+    "svelte/internal": "/_node_modules/svelte/src/internal/index.js",
+    "svelte/internal/client": "/_node_modules/svelte/src/internal/client/index.js",
+    "svelte/internal/disclose-version": "/_node_modules/svelte/src/internal/disclose-version.js",
+} as const;
+
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const toRelativeImportSpecifier = (importerPath: string, resolvedPath: string): string => {
+    const relativePath = normalizeModulePath(relative(dirname(importerPath), resolvedPath));
+    return relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+};
+
+const isBareImportSpecifier = (specifier: string): boolean =>
+    !specifier.startsWith(".") &&
+    !specifier.startsWith("/") &&
+    !specifier.startsWith("data:") &&
+    !specifier.startsWith("blob:") &&
+    !specifier.startsWith("http:") &&
+    !specifier.startsWith("https:");
+
+const isPackageImportSpecifier = (specifier: string): boolean => specifier.startsWith("#");
+
+const isNodeModulesPackageRoot = (packageRoot: string): boolean =>
+    normalizeModulePath(packageRoot).split("/").includes("node_modules");
+
+const getPackageNameFromSpecifier = (specifier: string): string => {
+    const segments = specifier.split("/");
+    if (segments[0]?.startsWith("@")) {
+        return segments.slice(0, 2).join("/");
+    }
+
+    return segments[0] ?? "";
+};
+
+const resolveImporterPackageForDev = async (
+    importerPath: string,
+): Promise<Result<{ packageName: string; packageRoot: string }>> => {
+    let currentDir = dirname(importerPath);
+
+    while (true) {
+        const packageJsonPath = join(currentDir, "package.json");
+        const packageJsonFile = Bun.file(packageJsonPath);
+
+        if (await packageJsonFile.exists()) {
+            let packageJson: unknown;
+            try {
+                packageJson = await packageJsonFile.json();
+            } catch (error) {
+                return err(`Failed to read ${packageJsonPath}: ${getErrorMessage(error)}`);
+            }
+
+            const packageName =
+                typeof packageJson === "object" && packageJson !== null && "name" in packageJson ? packageJson.name : undefined;
+            if (typeof packageName !== "string" || packageName.length === 0) {
+                return err(`Missing package name in ${packageJsonPath}`);
+            }
+
+            return ok({ packageName, packageRoot: currentDir });
+        }
+
+        const parentDir = dirname(currentDir);
+        if (parentDir === currentDir) {
+            return err(`Failed to resolve package root for ${importerPath}`);
+        }
+
+        currentDir = parentDir;
+    }
+};
+
+const replaceImportSpecifier = (source: string, specifier: string, replacement: string): string => {
+    const escapedSpecifier = escapeRegExp(specifier);
+    const dynamicImportPattern = new RegExp(`\\bimport\\s*\\(\\s*(['"])${escapedSpecifier}\\1\\s*\\)`, "g");
+    const importFromPattern = new RegExp(`\\bfrom\\s+(['"])${escapedSpecifier}\\1`, "g");
+    const sideEffectImportPattern = new RegExp(`\\bimport\\s+(['"])${escapedSpecifier}\\1`, "g");
+
+    return source
+        .replace(dynamicImportPattern, (_, quote: string) => `import(${quote}${replacement}${quote})`)
+        .replace(importFromPattern, (_, quote: string) => `from ${quote}${replacement}${quote}`)
+        .replace(sideEffectImportPattern, (_, quote: string) => `import ${quote}${replacement}${quote}`);
+};
+
+export const resolveBareImportPathForDev = async (specifier: string, importerPath: string): Promise<Result<string>> => {
+    const specialImport = DEV_SPECIAL_IMPORTS[specifier as keyof typeof DEV_SPECIAL_IMPORTS];
+    if (specialImport !== undefined) {
+        return ok(specialImport);
+    }
+
+    if (!isBareImportSpecifier(specifier)) {
+        return ok(specifier);
+    }
+
+    const packageName = getPackageNameFromSpecifier(specifier);
+    if (packageName.length === 0) {
+        return err(`Unsupported bare import in ${importerPath}: ${specifier}`);
+    }
+
+    const importerUrl = pathToFileURL(importerPath).href;
+
+    if (isPackageImportSpecifier(specifier)) {
+        const importerPackage = await resolveImporterPackageForDev(importerPath);
+        if (!importerPackage.ok) {
+            return importerPackage;
+        }
+
+        if (!isNodeModulesPackageRoot(importerPackage.value.packageRoot)) {
+            return err(`App-local package imports are not supported in dev: ${specifier} from ${importerPath}`);
+        }
+
+        return Promise.resolve()
+            .then(() => import.meta.resolve(specifier, importerUrl))
+            .then(
+                (resolvedUrl) => {
+                    if (!resolvedUrl.startsWith("file://")) {
+                        return err(`Unsupported resolved import for ${specifier}: ${resolvedUrl}`);
+                    }
+
+                    const resolvedPath = fileURLToPath(resolvedUrl);
+                    const relativePath = relative(importerPackage.value.packageRoot, resolvedPath);
+                    if (relativePath.length === 0 || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+                        return err(`Resolved import escaped package root for ${specifier}: ${resolvedPath}`);
+                    }
+
+                    if (!isNodeModulesPackageRoot(importerPackage.value.packageRoot)) {
+                        return ok(toRelativeImportSpecifier(importerPath, resolvedPath));
+                    }
+
+                    return ok(
+                        `/_node_modules/${normalizeModulePath(importerPackage.value.packageName)}/${normalizeModulePath(relativePath)}`,
+                    );
+                },
+                (error) => err(`Failed to resolve ${specifier} from ${importerPath}: ${getErrorMessage(error)}`),
+            );
+    }
+
+    return Promise.all([
+        import.meta.resolve(specifier, importerUrl),
+        import.meta.resolve(`${packageName}/package.json`, importerUrl),
+    ]).then(
+        ([resolvedUrl, packageJsonUrl]) => {
+            if (!resolvedUrl.startsWith("file://") || !packageJsonUrl.startsWith("file://")) {
+                return err(`Unsupported resolved import for ${specifier}: ${resolvedUrl}`);
+            }
+
+            const resolvedPath = fileURLToPath(resolvedUrl);
+            const packageRoot = dirname(fileURLToPath(packageJsonUrl));
+            const relativePath = relative(packageRoot, resolvedPath);
+            if (relativePath.length === 0 || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+                return err(`Resolved import escaped package root for ${specifier}: ${resolvedPath}`);
+            }
+
+            return ok(`/_node_modules/${normalizeModulePath(packageName)}/${normalizeModulePath(relativePath)}`);
+        },
+        (error) => err(`Failed to resolve ${specifier} from ${importerPath}: ${getErrorMessage(error)}`),
+    );
+};
+
+const jsImportScanner = new Bun.Transpiler({ loader: "js" });
+
+export const rewriteBareImportsForDev = async (source: string, importerPath: string): Promise<Result<string>> => {
+    const specifiers = Array.from(
+        new Set(
+            jsImportScanner
+                .scanImports(source)
+                .map((record) => record.path)
+                .filter(
+                    (specifier) =>
+                        DEV_SPECIAL_IMPORTS[specifier as keyof typeof DEV_SPECIAL_IMPORTS] !== undefined ||
+                        isBareImportSpecifier(specifier),
+                ),
+        ),
+    );
+
+    let rewritten = source;
+
+    for (const specifier of specifiers) {
+        const resolved = await resolveBareImportPathForDev(specifier, importerPath);
+        if (!resolved.ok) {
+            return resolved;
+        }
+
+        rewritten = replaceImportSpecifier(rewritten, specifier, resolved.value);
+    }
+
+    return ok(rewritten);
+};
 
 export type DevServerHandle = {
     port: number;
     stop: () => Promise<void>;
 };
-
-export { resolveDevWatchRoots } from "./dev-config";
-export type { DevRuntimeState, DevWatchRoot } from "./dev-config";
 
 export type DevCliDependencies = {
     cwd?: string;
@@ -45,14 +1111,10 @@ export type DevCliDependencies = {
     run?: (cwd: string) => Promise<Result<DevServerHandle>>;
 };
 
-export { resolveBareImportPathForDev } from "./dev-imports";
-export { attachDevWatcherErrorHandler, classifyDevWatchTarget, formatDevWatcherIssue, shouldProcessDevWatchEvent } from "./dev-reload";
-
 const DEV_PORT_RETRY_LIMIT = 8;
 const DEV_PORT_RANGE_MAX = 65535;
 const DEV_PORT_RANGE_MIN = 49152;
 
-const createNotFoundResponse = (): Response => new Response("Not Found", { status: 404 });
 const createMethodNotAllowedResponse = (): Response =>
     new Response("Method Not Allowed", {
         status: 405,
@@ -163,7 +1225,7 @@ const startServer = async (
             .catch((startError: unknown) => {
                 const errorCode = getErrorCode(startError);
                 const errorMessage = getErrorMessage(startError);
-                return fail(
+                return err(
                     errorCode === undefined
                         ? `Failed to start dev server: ${errorMessage}`
                         : `Failed to start dev server: ${errorCode}: ${errorMessage}`,
@@ -179,7 +1241,7 @@ const startServer = async (
         }
     }
 
-    return fail("Failed to start dev server.");
+    return err("Failed to start dev server.");
 };
 
 export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevServerHandle>> => {
@@ -338,9 +1400,7 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
             }
 
             if (isSupportedLocalSourceModule(rawPathname)) {
-                const result = await handleSourceModuleRequest(
-                    rawPathname, rootDir, currentState.sourceRoot, reloadHub.cache,
-                );
+                const result = await handleSourceModuleRequest(rawPathname, rootDir, currentState.sourceRoot, reloadHub.cache);
                 if (result !== null) return result;
             }
 

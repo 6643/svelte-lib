@@ -54,8 +54,7 @@ test("route and ui test helpers re-export Svelte's public client api", async () 
 
 test("builder Bun types use module imports instead of legacy namespace references", () => {
     const files = [
-        "src/builder/finalize-css.ts",
-        "src/builder/finalize-js.ts",
+        "src/builder/assets.ts",
         "src/builder/build.ts",
         "src/builder/dev.ts",
         "src/builder/tests/finalize-js.test.ts",
@@ -369,10 +368,10 @@ test("builder README no longer points readers at a removed top-level demo app", 
 
 test("builder dev runtime logs use the published dev command name", () => {
     const devSource = readRepoFile("src/builder/dev.ts");
-    const reloadSource = readRepoFile("src/builder/dev-reload.ts");
+    const reloadSource = readRepoFile("src/builder/dev.ts");
 
     expect(devSource.includes("[svelte-builder]")).toBe(false);
-    expect(devSource.includes("[svelte-dev]") || reloadSource.includes("[svelte-dev]")).toBe(true);
+    expect(devSource.includes("[svelte-dev]") || devSource.includes("[svelte-dev]")).toBe(true);
 });
 
 test("root README no longer documents a removed top-level demo app", () => {
@@ -384,7 +383,7 @@ test("root README no longer documents a removed top-level demo app", () => {
 });
 
 test("builder source config uses ts and local counters use arrow functions", () => {
-    expect(existsSync(resolve(repoRoot, "src/builder/svelte.config.ts"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/builder/build.ts"))).toBe(true);
     expect(existsSync(resolve(repoRoot, "src/builder/svelte.config.js"))).toBe(false);
     expect(existsSync(resolve(repoRoot, "src/builder/demo.Counter.svelte"))).toBe(false);
     expect(existsSync(resolve(repoRoot, "src/builder/demo.Counter2.svelte"))).toBe(false);

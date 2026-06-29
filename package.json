@@ -8,7 +8,9 @@
         "./use": "./src/use/_.ts",
         "./route": "./src/route/_.ts",
         "./builder": "./src/builder/_.ts",
-        "./package.json": "./package.json"
+        "./package.json": "./package.json",
+        "./build": "./src/builder/build.ts",
+        "./dev": "./src/builder/dev.ts"
     },
     "bin": {
         "svelte-build": "./src/builder/build.ts",

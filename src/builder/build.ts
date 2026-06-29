@@ -1021,12 +1021,12 @@ export const buildSvelte = async (
   if (!outDirReady.ok) return outDirReady;
 
   // 4. Generate bootstrap
-  const bootstrapSource = createBootstrapSource(
-    createImportPath(ctx.value.rootDir, ctx.value.appComponentPath),
-    ctx.value.mountId,
-  );
   const stageDir = join(ctx.value.rootDir, `.bsp-stage-${Date.now()}`);
   await mkdir(stageDir, { recursive: true });
+  const bootstrapSource = createBootstrapSource(
+    createImportPath(stageDir, ctx.value.appComponentPath),
+    ctx.value.mountId,
+  );
   const bootstrapPath = join(stageDir, "bootstrap.ts");
   await writeFile(bootstrapPath, bootstrapSource, "utf8");
 

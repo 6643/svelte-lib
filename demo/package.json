@@ -2,4 +2,11 @@
     "name": "demo",
     "private": true,
     "type": "module",
+    "dependencies": {
+        "svelte-lib": "file:.."
+    },
+    "scripts": {
+        "build": "bun svelte-build",
+        "dev": "bun svelte-dev"
+    }
 }

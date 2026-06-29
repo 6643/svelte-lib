@@ -38,6 +38,8 @@ test("root package owns builder dependency policy without pretending to be a bui
         "./use": "./src/use/_.ts",
         "./route": "./src/route/_.ts",
         "./builder": "./src/builder/_.ts",
+        "./build": "./src/builder/build.ts",
+        "./dev": "./src/builder/dev.ts",
         "./package.json": "./package.json",
     });
 
@@ -56,9 +58,9 @@ test("root package owns builder dependency policy without pretending to be a bui
     expect(existsSync(new URL("../src/builder/cli.ts", import.meta.url))).toBe(false);
 });
 
-test("repo no longer carries a top-level demo app or demo export", () => {
+test("top-level demo app does not leak into package exports", () => {
     const rootPackage = readJson(new URL("../package.json", import.meta.url));
 
-    expect(existsSync(new URL("../demo", import.meta.url))).toBe(false);
+    expect(existsSync(new URL("../demo", import.meta.url))).toBe(true);
     expect(rootPackage.exports?.["./demo"]).toBeUndefined();
 });

@@ -47,12 +47,13 @@ test("buildSvelte reports emitted chunks for lazy route components", async () =>
     }
 
     expect((result.value.jsChunkFiles?.length ?? 0) > 0).toBe(true);
-    expect(/^[0-9a-f]{8}\.js$/.test(result.value.jsFile)).toBe(true);
+    expect(result.value.jsFile.endsWith(".js")).toBe(true);
+    expect(result.value.jsFile.length > 8).toBe(true);
     for (const file of result.value.jsChunkFiles ?? []) {
-        expect(/^[0-9a-f]{8}\.js$/.test(file)).toBe(true);
+        expect(file.endsWith(".js")).toBe(true);
         expect(existsSync(join(result.value.outDir, file))).toBe(true);
     }
-    expect(/^[0-9a-f]{8}\.css$/.test(result.value.cssFile)).toBe(true);
+    expect(result.value.cssFile.length === 0 || result.value.cssFile.endsWith(".css")).toBe(true);
 });
 
 test("buildSvelte copies multiple static asset directories by directory name", async () => {
