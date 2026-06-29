@@ -13,7 +13,6 @@ import type { ErrorLike, Server } from "bun";
 
 import {
     createHtmlShell,
-    loadSvelteConfig,
     ok,
     err,
     getErrorMessage,
@@ -32,8 +31,9 @@ import {
     validateResolvedAppComponentPath,
     validateSvelteBrowserImportAliases,
     type Result,
-    type BuildSvelteOptions,
 } from "./build";
+
+import { loadSvelteConfig, type BuildSvelteOptions } from "./config";
 
 import { resolveConfiguredAssetsDirs, resolvePhysicalAssetPath, type ResolvedAssetsDir } from "./assets";
 import { formatAssetReport } from "./report";
