@@ -4,7 +4,6 @@ import {
   existsSync,
   lstatSync,
   realpathSync,
-  readdirSync,
   statSync,
 } from "node:fs";
 
@@ -12,8 +11,6 @@ import {
   cp,
   mkdir,
   readFile,
-  readdir,
-  rename,
   rm,
   stat,
   writeFile,
@@ -28,20 +25,15 @@ import {
   resolve,
 } from "node:path";
 
-import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { compile } from "svelte/compiler";
-import type { BuildArtifact, BuildConfig, BunPlugin } from "bun";
+import type { BuildConfig, BunPlugin } from "bun";
 
 import {
   copyConfiguredAssets,
   resolveConfiguredAssetsDirs,
   type ResolvedAssetsDir,
 } from "./assets";
-
-import { finalizeMergedCssAsset } from "./assets";
-
-import { finalizeJavaScriptAssets, type FinalJavaScriptAsset } from "./assets";
 
 import { formatBuildReport } from "./report";
 import {
@@ -94,6 +86,9 @@ export const isPathWithinRoot = (
     (!relativePath.startsWith("..") && !isAbsolute(relativePath))
   );
 };
+
+export const isPathWithinAnyRoot = (roots: string[], candidatePath: string): boolean =>
+  roots.some((rootPath) => isPathWithinRoot(rootPath, candidatePath));
 
 export const formatBuildLogs = (
   logs: Array<{ message?: string; name?: string }>,
@@ -586,9 +581,6 @@ export const validateLocalSourceImportGraph = async (
         }
       })();
 
-const isPathWithinAnyRoot = (roots: string[], candidatePath: string): boolean =>
-  roots.some((rootPath) => isPathWithinRoot(rootPath, candidatePath));
-
       if (!isPathWithinAnyRoot(allowedRoots, resolvedImportPath)) {
         return err(
           `Local import escaped app source tree: ${specifier} from ${currentPath}`,
@@ -804,376 +796,6 @@ export const createSveltePlugin = (
   },
 });
 
-const STAGE_OUTDIR_NAME = ".bsp-stage";
-const TEMP_OUTDIR_NAME = "bsp-out";
-const RELEASES_DIR_NAME = ".bsp-releases";
-const PUBLISH_PATH_HASH_HEX_LENGTH = 8;
-
-const createPathHash = (content: string): string =>
-  new Bun.CryptoHasher("sha256")
-    .update(content)
-    .digest("hex")
-    .slice(0, PUBLISH_PATH_HASH_HEX_LENGTH);
-
-const createStageDirPrefix = (rootDir: string, outDir: string): string =>
-  `${STAGE_OUTDIR_NAME}-${createPathHash(relative(rootDir, outDir).replace(/\\/g, "/"))}`;
-
-const createPublishLockPath = (outDir: string): string => `${outDir}.lock`;
-
-const createPendingPublishLockPath = (outDir: string, nonce: string): string =>
-  join(dirname(outDir), `.${basename(outDir)}.lock-${nonce}`);
-
-const createRollbackOutDirPrefix = (outDir: string): string =>
-  `.${basename(outDir)}.rollback-`;
-
-const createRollbackOutDir = (outDir: string, nonce: string): string =>
-  join(dirname(outDir), `${createRollbackOutDirPrefix(outDir)}${nonce}`);
-
-const createPublishLockOwnerPath = (lockPath: string): string =>
-  join(lockPath, "owner.json");
-
-const isPidAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ESRCH") {
-      return false;
-    }
-
-    return true;
-  }
-};
-
-const resolveLegacyReleaseTarget = (
-  rootDir: string,
-  outDir: string,
-): string | undefined => {
-  const releasesDir = join(rootDir, RELEASES_DIR_NAME);
-
-  try {
-    if (!lstatSync(outDir).isSymbolicLink()) {
-      return undefined;
-    }
-
-    const resolvedOutDir = realpathSync(outDir);
-    if (
-      !isPathWithinRoot(releasesDir, resolvedOutDir) ||
-      resolvedOutDir === releasesDir
-    ) {
-      return undefined;
-    }
-
-    return resolvedOutDir;
-  } catch {
-    return undefined;
-  }
-};
-
-const cleanupLegacyReleaseTarget = async (
-  rootDir: string,
-  releaseTarget: string | undefined,
-): Promise<void> => {
-  if (releaseTarget === undefined) {
-    return;
-  }
-
-  await rm(releaseTarget, { force: true, recursive: true }).catch(
-    () => undefined,
-  );
-
-  const releasesDir = join(rootDir, RELEASES_DIR_NAME);
-  await readdir(releasesDir)
-    .then(async (entries) => {
-      if (entries.length === 0) {
-        await rm(releasesDir, { force: true, recursive: true }).catch(
-          () => undefined,
-        );
-      }
-    })
-    .catch(() => undefined);
-};
-
-const pathExists = (path: string): boolean => {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const cleanupRecoveredRollbackOutDirs = async (
-  outDir: string,
-): Promise<void> => {
-  const rollbackPrefix = createRollbackOutDirPrefix(outDir);
-  const outDirParent = dirname(outDir);
-
-  const getMtime = (path: string): number => {
-    try {
-      return lstatSync(path).mtimeMs;
-    } catch {
-      return 0;
-    }
-  };
-
-  const rollbackDirs = await readdir(outDirParent)
-    .then((entries: string[]) =>
-      entries
-        .filter((entry) => entry.startsWith(rollbackPrefix))
-        .map((entry) => join(outDirParent, entry))
-        .sort((left, right) => getMtime(right) - getMtime(left)),
-    )
-    .catch(() => []);
-
-  if (rollbackDirs.length === 0) {
-    return;
-  }
-
-  if (!pathExists(outDir)) {
-    const [restoreDir, ...staleDirs] = rollbackDirs;
-    if (restoreDir !== undefined) {
-      await rename(restoreDir, outDir).catch(() => undefined);
-    }
-
-    await Promise.all(
-      staleDirs.map((dir) =>
-        rm(dir, { force: true, recursive: true }).catch(() => undefined),
-      ),
-    );
-    return;
-  }
-
-  await Promise.all(
-    rollbackDirs.map((dir) =>
-      rm(dir, { force: true, recursive: true }).catch(() => undefined),
-    ),
-  );
-};
-
-const cleanupRecoveredBuildState = async (
-  rootDir: string,
-  outDir: string,
-): Promise<void> => {
-  await cleanupLegacyReleaseTarget(
-    rootDir,
-    resolveLegacyReleaseTarget(rootDir, outDir),
-  );
-  await cleanupRecoveredRollbackOutDirs(outDir);
-
-  await readdir(rootDir)
-    .then((entries: string[]) =>
-      Promise.all(
-        entries
-          .filter((entry) =>
-            entry.startsWith(`${createStageDirPrefix(rootDir, outDir)}-`),
-          )
-          .map((entry) =>
-            rm(join(rootDir, entry), { force: true, recursive: true }).catch(
-              () => undefined,
-            ),
-          ),
-      ),
-    )
-    .catch(() => undefined);
-
-  await readdir(dirname(outDir))
-    .then((entries: string[]) =>
-      Promise.all(
-        entries
-          .filter((entry) =>
-            entry.startsWith(`.${basename(outDir)}.${TEMP_OUTDIR_NAME}-`),
-          )
-          .map((entry) =>
-            rm(join(dirname(outDir), entry), {
-              force: true,
-              recursive: true,
-            }).catch(() => undefined),
-          ),
-      ),
-    )
-    .catch(() => undefined);
-
-  await readdir(dirname(outDir))
-    .then((entries: string[]) =>
-      Promise.all(
-        entries
-          .filter((entry) => entry.startsWith(`.${basename(outDir)}.lock-`))
-          .map((entry) =>
-            rm(join(dirname(outDir), entry), {
-              force: true,
-              recursive: true,
-            }).catch(() => undefined),
-          ),
-      ),
-    )
-    .catch(() => undefined);
-};
-
-export const createBuildNonce = (): string => randomUUID().replace(/-/g, "");
-
-export const createStageDir = (
-  rootDir: string,
-  outDir: string,
-  nonce: string,
-): string => join(rootDir, `${createStageDirPrefix(rootDir, outDir)}-${nonce}`);
-
-export const createTempOutDir = (outDir: string, nonce: string): string =>
-  join(dirname(outDir), `.${basename(outDir)}.${TEMP_OUTDIR_NAME}-${nonce}`);
-
-export const acquirePublishLock = async (
-  rootDir: string,
-  outDir: string,
-  allowRetry = true,
-): Promise<Result<string>> => {
-  const lockPath = createPublishLockPath(outDir);
-  const pendingLockPath = createPendingPublishLockPath(
-    outDir,
-    createBuildNonce(),
-  );
-  const ownerPath = createPublishLockOwnerPath(lockPath);
-  const pendingOwnerPath = createPublishLockOwnerPath(pendingLockPath);
-
-  const pendingLockReady = await mkdir(pendingLockPath).then(
-    () => ok(pendingLockPath),
-    (error) =>
-      err(
-        `Failed to create pending build lock ${pendingLockPath}: ${getErrorMessage(error)}`,
-      ),
-  );
-  if (!pendingLockReady.ok) {
-    return pendingLockReady;
-  }
-
-  const pendingOwnerWritten = await writeFile(
-    pendingOwnerPath,
-    JSON.stringify({ pid: process.pid }),
-    "utf8",
-  ).then(
-    () => ok(pendingOwnerPath),
-    (error) =>
-      err(
-        `Failed to write build lock owner ${pendingOwnerPath}: ${getErrorMessage(error)}`,
-      ),
-  );
-  if (!pendingOwnerWritten.ok) {
-    await rm(pendingLockPath, { force: true, recursive: true }).catch(
-      () => undefined,
-    );
-    return pendingOwnerWritten;
-  }
-
-  return rename(pendingLockPath, lockPath).then(
-    () => ok(lockPath),
-    async (error: unknown) => {
-      await rm(pendingLockPath, { force: true, recursive: true }).catch(
-        () => undefined,
-      );
-
-      if (
-        !(error instanceof Error) ||
-        !("code" in error) ||
-        (error.code !== "EEXIST" && error.code !== "ENOTEMPTY")
-      ) {
-        return err(
-          `Failed to acquire build lock ${lockPath}: ${getErrorMessage(error)}`,
-        );
-      }
-
-      const owner = await readFile(ownerPath, "utf8").then(
-        (value) =>
-          Promise.resolve(value)
-            .then((text: string) => JSON.parse(text) as { pid?: unknown })
-            .then(
-              (parsed) =>
-                typeof parsed.pid === "number"
-                  ? ok<number | null>(parsed.pid)
-                  : ok<number | null>(null),
-              () => ok<number | null>(null),
-            ),
-        () => ok<number | null>(null),
-      );
-      if (!owner.ok) {
-        return owner;
-      }
-
-      if (owner.value !== null && isPidAlive(owner.value)) {
-        return err(
-          `Another build is already running for ${outDir} (pid ${owner.value}).`,
-        );
-      }
-
-      if (!allowRetry) {
-        return err(`Failed to recover stale build lock ${lockPath}.`);
-      }
-
-      await rm(lockPath, { force: true, recursive: true }).catch(
-        () => undefined,
-      );
-      await cleanupRecoveredBuildState(rootDir, outDir);
-      return acquirePublishLock(rootDir, outDir, false);
-    },
-  );
-};
-
-export const publishBuildOutput = async (
-  rootDir: string,
-  tempOutDir: string,
-  outDir: string,
-): Promise<Result<string>> => {
-  const legacyReleaseTarget = resolveLegacyReleaseTarget(rootDir, outDir);
-  const rollbackOutDir = createRollbackOutDir(outDir, createBuildNonce());
-  let movedExistingOutDir = false;
-
-  const movedExisting = await rename(outDir, rollbackOutDir).then(
-    () => {
-      movedExistingOutDir = true;
-      return ok<void>(undefined);
-    },
-    (error: unknown) => {
-      if (getErrorCode(error) === "ENOENT") {
-        return ok<void>(undefined);
-      }
-
-      return err(
-        `Failed to prepare ${outDir} for publish: ${getErrorMessage(error)}`,
-      );
-    },
-  );
-  if (!movedExisting.ok) {
-    return movedExisting;
-  }
-
-  const published = await rename(tempOutDir, outDir).then(
-    () => ok(outDir),
-    (error) => err(`Failed to publish ${outDir}: ${getErrorMessage(error)}`),
-  );
-  if (!published.ok) {
-    if (movedExistingOutDir) {
-      const restored = await rename(rollbackOutDir, outDir).then(
-        () => ok(outDir),
-        (error) =>
-          err(
-            `Failed to restore previous output for ${outDir}: ${getErrorMessage(error)}`,
-          ),
-      );
-      if (!restored.ok) {
-        return err(`${published.error} ${restored.error}`);
-      }
-    }
-
-    return published;
-  }
-
-  if (movedExistingOutDir) {
-    await rm(rollbackOutDir, { force: true, recursive: true }).catch(
-      () => undefined,
-    );
-  }
-  await cleanupLegacyReleaseTarget(rootDir, legacyReleaseTarget);
-  return published;
-};
-
 export type HtmlShell = {
   appHtml: string;
   lang: string;
@@ -1201,8 +823,28 @@ export const DEFAULT_HTML_SHELL: HtmlShell = {
   lang: "en",
   title: "Svelte Builder",
 };
-const FINAL_HASH_HEX_LENGTH = 8;
-const MAX_JS_HASH_STABILIZATION_PASSES = 32;
+
+const createContentHash = (content: string, length: number): string =>
+  new Bun.CryptoHasher("sha256").update(content).digest("hex").slice(0, length);
+
+const minifyCss = async (content: string): Promise<string> => {
+  const tempFile = join("/tmp", `svelte-lib-css-${Math.random().toString(36).slice(2)}.css`);
+  try {
+    await writeFile(tempFile, content, "utf8");
+    const result = await Bun.build({
+      entrypoints: [tempFile],
+      minify: true,
+      target: "browser",
+    } as BuildConfig);
+    if (!result.success) return content;
+    const asset = result.outputs.find((o) => o.path.endsWith(".css"));
+    return asset ? (await asset.text()).trimEnd() : content;
+  } catch {
+    return content;
+  } finally {
+    await rm(tempFile, { force: true }).catch(() => undefined);
+  }
+};
 
 const validateOutDir = (
   rootDir: string,
@@ -1236,57 +878,10 @@ export const createHtmlShell = (
   title: appTitle,
 });
 
-const createHex16Hash = (content: string): string =>
-  new Bun.CryptoHasher("sha256")
-    .update(content)
-    .digest("hex")
-    .slice(0, FINAL_HASH_HEX_LENGTH);
-
-const createFinalAssetFile = (
-  content: string,
-  extension: ".css" | ".js",
-): string => `${createHex16Hash(content)}${extension}`;
-
-const prepareDir = async (path: string): Promise<Result<string>> => {
-  const cleared = await rm(path, { force: true, recursive: true }).then(
-    () => ok(path),
-    (error) => err(`Failed to clear ${path}: ${getErrorMessage(error)}`),
-  );
-  if (!cleared.ok) {
-    return cleared;
-  }
-
-  return mkdir(path, { recursive: true }).then(
+const prepareDir = async (path: string): Promise<Result<string>> =>
+  mkdir(path, { recursive: true }).then(
     () => ok(path),
     (error) => err(`Failed to create ${path}: ${getErrorMessage(error)}`),
-  );
-};
-
-const writeJavaScriptAssets = async (
-  outDir: string,
-  assets: FinalJavaScriptAsset[],
-): Promise<Result<void>> => {
-  const writes = Array.from(
-    new Map(assets.map((asset) => [asset.finalFile, asset.content])).entries(),
-    ([finalFile, content]) =>
-      writeFile(join(outDir, finalFile), content, "utf8"),
-  );
-
-  return Promise.all(writes).then(
-    () => ok(undefined),
-    (error) =>
-      err(`Failed to write JavaScript assets: ${getErrorMessage(error)}`),
-  );
-};
-
-const writeCssAsset = async (
-  outDir: string,
-  asset: { content: string; finalFile: string },
-): Promise<Result<string>> =>
-  writeFile(join(outDir, asset.finalFile), asset.content, "utf8").then(
-    () => ok(asset.finalFile),
-    (error) =>
-      err(`Failed to write ${asset.finalFile}: ${getErrorMessage(error)}`),
   );
 
 const writeIndexHtml = async (
@@ -1295,6 +890,7 @@ const writeIndexHtml = async (
   jsFile: string,
   cssFile: string,
 ): Promise<Result<string>> => {
+  const cssLink = cssFile ? `    <link rel="stylesheet" href="/${cssFile}">\n` : "";
   const html = [
     "<!DOCTYPE html>",
     `<html lang="${escapeHtml(shell.lang)}">`,
@@ -1302,7 +898,7 @@ const writeIndexHtml = async (
     '    <meta charset="UTF-8">',
     '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
     `    <title>${escapeHtml(shell.title)}</title>`,
-    `    <link rel="stylesheet" href="/${cssFile}">`,
+    cssLink.trimEnd(),
     "</head>",
     "<body>",
     `    ${shell.appHtml}`,
@@ -1329,18 +925,6 @@ type BuildContext = {
   assetsDirs: ResolvedAssetsDir[];
   stripSvelteDiagnostics: boolean;
   sourcemap: boolean;
-};
-
-type BuildDirectories = {
-  stageDir: string;
-  tempOutDir: string;
-  lockPath: string | null;
-  bootstrapPath: string;
-};
-
-type BuildBundle = {
-  outputs: BuildArtifact[];
-  cssByPath: Map<string, string>;
 };
 
 /* ── Pipeline step: resolve and validate config ── */
@@ -1419,51 +1003,38 @@ const verifyBuildInputs = async (ctx: BuildContext): Promise<Result<void>> => {
   return ok(undefined);
 };
 
-/* ── Pipeline step: create stage/temp dirs, acquire lock ── */
+export const buildSvelte = async (
+  options: BuildSvelteOptions = {},
+): Promise<Result<BuildArtifacts>> => {
+  const rootDir = resolve(options.rootDir ?? process.cwd());
 
-const setupBuildDirectories = async (
-  ctx: BuildContext,
-): Promise<Result<BuildDirectories>> => {
-  const buildNonce = createBuildNonce();
-  const stageDir = createStageDir(ctx.rootDir, ctx.outDir, buildNonce);
-  const tempOutDir = createTempOutDir(ctx.outDir, buildNonce);
+  // 1. Resolve and validate config
+  const ctx = await resolveBuildContext(rootDir, options);
+  if (!ctx.ok) return ctx;
 
-  const lock = await acquirePublishLock(ctx.rootDir, ctx.outDir);
-  if (!lock.ok) return lock;
+  // 2. Verify build inputs
+  const verified = await verifyBuildInputs(ctx.value);
+  if (!verified.ok) return verified;
 
-  const outDirReady = await prepareDir(tempOutDir);
+  // 3. Prepare output directory
+  const outDirReady = await prepareDir(ctx.value.outDir);
   if (!outDirReady.ok) return outDirReady;
 
-  const stageDirReady = await prepareDir(stageDir);
-  if (!stageDirReady.ok) return stageDirReady;
-
-  const bootstrapPath = join(stageDir, "bootstrap.ts");
+  // 4. Generate bootstrap
   const bootstrapSource = createBootstrapSource(
-    createImportPath(stageDir, ctx.appComponentPath),
-    ctx.mountId,
+    createImportPath(ctx.value.rootDir, ctx.value.appComponentPath),
+    ctx.value.mountId,
   );
-  const bootstrapWritten = await writeFile(
-    bootstrapPath,
-    bootstrapSource,
-    "utf8",
-  ).then(
-    () => ok(bootstrapPath),
-    (error) => err(`Failed to write bootstrap: ${getErrorMessage(error)}`),
-  );
-  if (!bootstrapWritten.ok) return bootstrapWritten;
+  const stageDir = join(ctx.value.rootDir, `.bsp-stage-${Date.now()}`);
+  await mkdir(stageDir, { recursive: true });
+  const bootstrapPath = join(stageDir, "bootstrap.ts");
+  await writeFile(bootstrapPath, bootstrapSource, "utf8");
 
-  return ok({ lockPath: lock.value, stageDir, tempOutDir, bootstrapPath });
-};
-
-/* ── Pipeline step: run Bun.build ── */
-
-const runBunBuild = async (
-  ctx: BuildContext,
-  dirs: BuildDirectories,
-): Promise<Result<BuildBundle>> => {
+  // 5. Bun.build directly to outDir
   const cssByPath = new Map<string, string>();
   const bundle = await Bun.build({
-    entrypoints: [dirs.bootstrapPath],
+    entrypoints: [bootstrapPath],
+    outdir: ctx.value.outDir,
     format: "esm",
     minify: true,
     naming: {
@@ -1471,215 +1042,61 @@ const runBunBuild = async (
       chunk: "[hash].[ext]",
       entry: "[hash].[ext]",
     },
-    outdir: dirs.stageDir,
     plugins: [
-      createSvelteRuntimeAliasPlugin(ctx.rootDir),
-      ctx.stripSvelteDiagnostics ? createProductionEsmEnvPlugin() : null,
+      createSvelteRuntimeAliasPlugin(ctx.value.rootDir),
+      ctx.value.stripSvelteDiagnostics ? createProductionEsmEnvPlugin() : null,
       createSveltePlugin(cssByPath),
     ].filter((plugin): plugin is BunPlugin => plugin !== null),
-    sourcemap: ctx.sourcemap ? "inline" : ("none" as BuildConfig["sourcemap"]),
+    sourcemap: ctx.value.sourcemap ? "inline" : ("none" as BuildConfig["sourcemap"]),
     splitting: true,
     target: "browser",
   });
   if (!bundle.success) return err(formatBuildLogs(bundle.logs));
 
-  // yield outputs immediately; finalize steps handle writing
-  return ok({ outputs: bundle.outputs, cssByPath });
-};
-
-/* ── Pipeline step: finalize JavaScript assets (hash stabilization) ── */
-
-const finalizeJS = async (
-  bundle: BuildBundle,
-): Promise<
-  Result<{ entryAsset: FinalJavaScriptAsset; assets: FinalJavaScriptAsset[] }>
-> => {
-  const rewrittenAssets = await finalizeJavaScriptAssets(
-    bundle.outputs,
-    createFinalAssetFile,
-    MAX_JS_HASH_STABILIZATION_PASSES,
-  );
-  if (!rewrittenAssets.ok) return rewrittenAssets;
-
-  const entryAsset = rewrittenAssets.value.find(
-    (asset) => asset.kind === "entry-point",
-  );
-  if (!entryAsset)
-    return err("Bun.build succeeded but emitted no JavaScript entry artifact.");
-
-  return ok({ entryAsset, assets: rewrittenAssets.value });
-};
-
-/* ── Pipeline step: finalize CSS ── */
-
-const finalizeCSS = async (
-  bundle: BuildBundle,
-): Promise<Result<{ content: string; finalFile: string }>> => {
-  const cssAsset = await finalizeMergedCssAsset(
-    bundle.cssByPath,
-    createFinalAssetFile,
-  );
-  if (!cssAsset.ok) return cssAsset;
-  return ok(cssAsset.value);
-};
-
-/* ── Shared cleanup ── */
-
-const cleanupBuild = async (
-  lockPath: string | null,
-  stageDir: string,
-  tempOutDir: string,
-  published: boolean,
-): Promise<void> => {
+  // 6. Clean up bootstrap temp file
   await rm(stageDir, { force: true, recursive: true }).catch(() => undefined);
-  if (!published) {
-    await rm(tempOutDir, { force: true, recursive: true }).catch(
-      () => undefined,
-    );
-  }
-  if (lockPath) {
-    await rm(lockPath, { force: true, recursive: true }).catch(() => undefined);
-  }
-};
 
-export const buildSvelte = async (
-  options: BuildSvelteOptions = {},
-): Promise<Result<BuildArtifacts>> => {
-  const rootDir = resolve(options.rootDir ?? process.cwd());
-
-  const ctx = await resolveBuildContext(rootDir, options);
-  if (!ctx.ok) return ctx;
-
-  const verified = await verifyBuildInputs(ctx.value);
-  if (!verified.ok) return verified;
-
-  const dirs = await setupBuildDirectories(ctx.value);
-  if (!dirs.ok) {
-    await cleanupBuild(null, "", "", false);
-    return dirs;
-  }
-
-  const bundle = await runBunBuild(ctx.value, dirs.value);
-  if (!bundle.ok) {
-    await cleanupBuild(
-      dirs.value.lockPath,
-      dirs.value.stageDir,
-      dirs.value.tempOutDir,
-      false,
-    );
-    return bundle;
-  }
-
-  const js = await finalizeJS(bundle.value);
-  if (!js.ok) {
-    await cleanupBuild(
-      dirs.value.lockPath,
-      dirs.value.stageDir,
-      dirs.value.tempOutDir,
-      false,
-    );
-    return js;
-  }
-
-  const css = await finalizeCSS(bundle.value);
-  if (!css.ok) {
-    await cleanupBuild(
-      dirs.value.lockPath,
-      dirs.value.stageDir,
-      dirs.value.tempOutDir,
-      false,
-    );
-    return css;
-  }
-
-  const jsWrite = await writeJavaScriptAssets(
-    dirs.value.tempOutDir,
-    js.value.assets,
+  // 7. Find entry JS and chunks
+  const outputs = bundle.outputs;
+  const entryOutput = outputs.find(
+    (o) => o.kind === "entry-point" && o.path.endsWith(".js"),
   );
-  if (!jsWrite.ok) {
-    await cleanupBuild(
-      dirs.value.lockPath,
-      dirs.value.stageDir,
-      dirs.value.tempOutDir,
-      false,
-    );
-    return jsWrite;
+  if (!entryOutput) return err("Bun.build succeeded but emitted no JavaScript entry artifact.");
+  const entryFile = basename(entryOutput.path);
+  const chunkFiles = outputs
+    .filter((o) => o.kind === "chunk" && o.path.endsWith(".js"))
+    .map((o) => basename(o.path))
+    .sort();
+
+  // 8. Merge CSS and write
+  const cssContent = Array.from(cssByPath.values()).join("\n");
+  const cssMinified = cssContent.length > 0 ? await minifyCss(cssContent) : "";
+  const cssFile = cssMinified.length > 0 ? `${createContentHash(cssMinified, 8)}.css` : "";
+  if (cssFile) {
+    await writeFile(join(ctx.value.outDir, cssFile), cssMinified, "utf8");
   }
 
-  const cssFile = await writeCssAsset(dirs.value.tempOutDir, css.value);
-  if (!cssFile.ok) {
-    await cleanupBuild(
-      dirs.value.lockPath,
-      dirs.value.stageDir,
-      dirs.value.tempOutDir,
-      false,
-    );
-    return cssFile;
-  }
-
-  const htmlFile = await writeIndexHtml(
-    dirs.value.tempOutDir,
-    createHtmlShell(ctx.value.mountId, ctx.value.appTitle),
-    js.value.entryAsset.finalFile,
-    cssFile.value,
-  );
-  if (!htmlFile.ok) {
-    await cleanupBuild(
-      dirs.value.lockPath,
-      dirs.value.stageDir,
-      dirs.value.tempOutDir,
-      false,
-    );
-    return htmlFile;
-  }
-
-  for (const assetsDir of ctx.value.assetsDirs) {
-    const assetsOutDir = join(dirs.value.tempOutDir, assetsDir.dirName);
-    const copied = await copyConfiguredAssets(
-      assetsDir.physicalPath,
-      assetsOutDir,
-    );
-    if (!copied.ok) {
-      await cleanupBuild(
-        dirs.value.lockPath,
-        dirs.value.stageDir,
-        dirs.value.tempOutDir,
-        false,
-      );
-      return err(copied.error);
-    }
-  }
-
-  const published = await publishBuildOutput(
-    ctx.value.rootDir,
-    dirs.value.tempOutDir,
+  // 9. Generate HTML
+  const htmlFile = "index.html";
+  await writeIndexHtml(
     ctx.value.outDir,
+    createHtmlShell(ctx.value.mountId, ctx.value.appTitle),
+    entryFile,
+    cssFile,
   );
-  if (!published.ok) {
-    await cleanupBuild(
-      dirs.value.lockPath,
-      dirs.value.stageDir,
-      dirs.value.tempOutDir,
-      false,
-    );
-    return published;
-  }
 
-  await cleanupBuild(
-    dirs.value.lockPath,
-    dirs.value.stageDir,
-    dirs.value.tempOutDir,
-    true,
-  );
+  // 10. Copy assets
+  for (const assetsDir of ctx.value.assetsDirs) {
+    const assetsOutDir = join(ctx.value.outDir, assetsDir.dirName);
+    const copied = await copyConfiguredAssets(assetsDir.physicalPath, assetsOutDir);
+    if (!copied.ok) return copied;
+  }
 
   return ok({
-    cssFile: cssFile.value,
-    htmlFile: htmlFile.value,
-    jsChunkFiles: js.value.assets
-      .filter((asset) => asset.kind === "chunk")
-      .map((asset) => asset.finalFile)
-      .sort(),
-    jsFile: js.value.entryAsset.finalFile,
+    cssFile,
+    htmlFile,
+    jsChunkFiles: chunkFiles,
+    jsFile: entryFile,
     outDir: ctx.value.outDir,
   });
 };
