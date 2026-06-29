@@ -1,13 +1,7 @@
 import { realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import {
-  ok,
-  err,
-  getErrorMessage,
-  isPathWithinRoot,
-  type Result,
-} from "./build";
+import { ok, err, getErrorMessage, isPathWithinRoot, type Result } from "./utils";
 
 export const CONFIG_FILE_NAME = "builder.ts";
 

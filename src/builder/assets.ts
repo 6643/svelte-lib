@@ -1,6 +1,6 @@
 import { cp, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { ok, err, getErrorCode, isPathWithinRoot, type Result } from "./build";
+import { ok, err, getErrorCode, isPathWithinRoot, type Result } from "./utils";
 export type ResolvedAssetsDir = {
     dirName: string;
     physicalPath: string;

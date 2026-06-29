@@ -13,10 +13,6 @@ import type { ErrorLike, Server } from "bun";
 
 import {
     createHtmlShell,
-    ok,
-    err,
-    getErrorMessage,
-    getErrorCode,
     escapeHtml,
     createBootstrapSource,
     createImportPath,
@@ -24,15 +20,13 @@ import {
     isSupportedSvelteSourceModule,
     isSupportedJavaScriptSourceModule,
     isSupportedTypeScriptSourceModule,
-    normalizeModulePath,
     resolveAppSourceRoot,
-    resolveConfiguredPath,
     validateLocalSourceImportGraph,
     validateResolvedAppComponentPath,
     validateSvelteBrowserImportAliases,
-    type Result,
 } from "./build";
 
+import { ok, err, getErrorMessage, getErrorCode, normalizeModulePath, resolveConfiguredPath, type Result } from "./utils";
 import { loadSvelteConfig, type BuildSvelteOptions } from "./config";
 
 import { resolveConfiguredAssetsDirs, resolvePhysicalAssetPath, type ResolvedAssetsDir } from "./assets";
