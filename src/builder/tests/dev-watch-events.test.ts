@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import * as devModule from "../dev";
+import * as devModule from "../dev-internals";
 
 const { classifyDevWatchTarget } = devModule;
 

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { buildSvelte } from "../build";
+import { build } from "../build";
 
 const tempDirs: string[] = [];
 
@@ -35,7 +35,7 @@ test("buildSvelte reports emitted chunks for lazy route components", async () =>
     await writeFile(join(rootDir, "src", "routes", "Home.svelte"), "<p>home</p>\n", "utf8");
     await writeFile(join(rootDir, "src", "routes", "Lazy.svelte"), "<p>lazy</p>\n", "utf8");
 
-    const result = await buildSvelte({
+    const result = await build({
         appComponent: "src/App.svelte",
         outDir: "dist",
         rootDir,
@@ -71,7 +71,7 @@ test("buildSvelte copies multiple static asset directories by directory name", a
     await writeFile(join(rootDir, "assets", "logo.svg"), "<svg></svg>\n", "utf8");
     await writeFile(join(rootDir, "public", "robots.txt"), "User-agent: *\n", "utf8");
 
-    const result = await buildSvelte({
+    const result = await build({
         appComponent: "src/App.svelte",
         assetsDirs: ["assets", "public"],
         outDir: "dist",

@@ -35,7 +35,7 @@ test("root package owns builder dependency policy without pretending to be a bui
     expect(rootPackage.exports).toEqual({
         ".": "./src/_.ts",
         "./ui": "./src/ui/_.ts",
-        "./use": "./src/use/_.ts",
+        "./use": "./src/ui/_.ts",
         "./route": "./src/route/_.ts",
         "./builder": "./src/builder/_.ts",
         "./build": "./src/builder/build.ts",

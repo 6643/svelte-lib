@@ -12,22 +12,22 @@ import { compile } from "svelte/compiler";
 import type { ErrorLike, Server } from "bun";
 
 import {
-    createHtmlShell,
-    escapeHtml,
     createBootstrapSource,
     createImportPath,
+    escapeHtml,
+    isSupportedJavaScriptSourceModule,
     isSupportedLocalSourceModule,
     isSupportedSvelteSourceModule,
-    isSupportedJavaScriptSourceModule,
     isSupportedTypeScriptSourceModule,
-    resolveAppSourceRoot,
     validateLocalSourceImportGraph,
-    validateResolvedAppComponentPath,
     validateSvelteBrowserImportAliases,
-} from "./build";
+} from "./build-internals";
 
 import { ok, err, getErrorMessage, getErrorCode, normalizeModulePath, resolveConfiguredPath, type Result } from "./utils";
-import { loadSvelteConfig, type BuildSvelteOptions } from "./config";
+import {
+    loadSvelteConfig,
+    type BuildSvelteOptions,
+} from "./config";
 
 import { resolveConfiguredAssetsDirs, resolvePhysicalAssetPath, type ResolvedAssetsDir } from "./assets";
 import { formatAssetReport } from "./report";
@@ -39,7 +39,7 @@ type DevCompileCacheEntry = {
     mtimeMs: number;
 };
 
-export type DevCompileCache = {
+type DevCompileCache = {
     invalidate: (cacheKey: string) => void;
     read: (cacheKey: string, mtimeMs: number) => string | undefined;
     write: (cacheKey: string, mtimeMs: number, contents: string) => void;
@@ -67,7 +67,7 @@ const logRecompiledAsset = (modulePath: string, contents: string): void => {
 
 // ---- Cache ----
 
-export const createDevCompileCache = (): DevCompileCache => {
+const createDevCompileCache = (): DevCompileCache => {
     const entries = new Map<string, DevCompileCacheEntry>();
 
     return {
@@ -88,12 +88,12 @@ export const createDevCompileCache = (): DevCompileCache => {
     };
 };
 
-export const createDevCompileCacheKey = (rootDir: string, modulePath: string): string =>
+const createDevCompileCacheKey = (rootDir: string, modulePath: string): string =>
     normalizeModulePath(join(rootDir, modulePath));
 
 // ---- File reading ----
 
-export const loadRequiredText = async (path: string): Promise<Result<string>> => {
+const loadRequiredText = async (path: string): Promise<Result<string>> => {
     const file = Bun.file(path);
     const exists = await file.exists();
     if (!exists) {
@@ -108,7 +108,7 @@ export const loadRequiredText = async (path: string): Promise<Result<string>> =>
 
 // ---- CSS injection ----
 
-export const createCssInjection = (modulePath: string, cssCode: string | undefined): string => {
+const createCssInjection = (modulePath: string, cssCode: string | undefined): string => {
     if (!cssCode) {
         return "";
     }
@@ -130,7 +130,7 @@ export const createCssInjection = (modulePath: string, cssCode: string | undefin
 
 const tsTranspiler = new Bun.Transpiler({ loader: "ts" });
 
-export const compileSvelteForDev = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
+const compileSvelteForDev = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
     const source = await loadRequiredText(join(rootDir, modulePath));
     if (!source.ok) {
         return source;
@@ -163,7 +163,7 @@ export const compileSvelteForDev = async (rootDir: string, modulePath: string, s
         );
 };
 
-export const transpileTypeScriptForDev = async (
+const transpileTypeScriptForDev = async (
     rootDir: string,
     modulePath: string,
     shouldLog = false,
@@ -193,7 +193,7 @@ export const transpileTypeScriptForDev = async (
 
 // ---- Module loading ----
 
-export const isCompilableDevModule = (filePath: string): boolean => isSupportedLocalSourceModule(filePath);
+const isCompilableDevModule = (filePath: string): boolean => isSupportedLocalSourceModule(filePath);
 
 const getDevModuleMtime = (rootDir: string, modulePath: string): Result<number> => {
     try {
@@ -233,7 +233,7 @@ const loadUncachedDevModule = async (rootDir: string, modulePath: string, should
     return err(`Unsupported dev module: ${modulePath}`);
 };
 
-export const loadDevModule = async (
+const loadDevModule = async (
     rootDir: string,
     modulePath: string,
     cache: DevCompileCache,
@@ -267,7 +267,7 @@ export const loadDevModule = async (
     return loaded;
 };
 
-export const compileChangedDevAsset = async (
+const compileChangedDevAsset = async (
     rootDir: string,
     modulePath: string,
     cache: DevCompileCache,
@@ -286,7 +286,7 @@ const createInternalServerErrorResponse = (): Response => new Response("Internal
 
 const createNotFoundResponse = (): Response => new Response("Not Found", { status: 404 });
 
-export const createDevModuleErrorResponse = (error: string): Response => {
+const createDevModuleErrorResponse = (error: string): Response => {
     if (error.startsWith("Missing file:")) {
         return createNotFoundResponse();
     }
@@ -295,7 +295,7 @@ export const createDevModuleErrorResponse = (error: string): Response => {
     return createInternalServerErrorResponse();
 };
 
-export const getRawRequestPathname = (requestUrl: string): string => {
+const getRawRequestPathname = (requestUrl: string): string => {
     const schemeIndex = requestUrl.indexOf("://");
     const pathnameStart = schemeIndex === -1 ? requestUrl.indexOf("/") : requestUrl.indexOf("/", schemeIndex + 3);
     const pathnameWithQuery = pathnameStart === -1 ? "/" : requestUrl.slice(pathnameStart);
@@ -304,13 +304,13 @@ export const getRawRequestPathname = (requestUrl: string): string => {
     return queryStart === -1 ? pathnameWithQuery : pathnameWithQuery.slice(0, queryStart);
 };
 
-export const isPathInsideRoot = (rootDir: string, targetPath: string): boolean => {
+const isPathInsideRoot = (rootDir: string, targetPath: string): boolean => {
     const relativePath = relative(rootDir, targetPath);
 
     return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 };
 
-export const resolveDevRequestPath = async (
+const resolveDevRequestPath = async (
     rootDir: string,
     rawPathname: string,
     prefix: string,
@@ -386,7 +386,7 @@ const getNodeModulePackageNameSegments = (segments: string[]): string[] => {
     return segments.length >= 1 ? segments.slice(0, 1) : [];
 };
 
-export const resolveDevNodeModuleRequestPath = async (
+const resolveDevNodeModuleRequestPath = async (
     nodeModulesRoot: string,
     rawPathname: string,
 ): Promise<Result<{ filePath: string; modulePath: string; packageRoot: string; resolvedPath: string }>> => {
@@ -447,7 +447,7 @@ export const resolveDevNodeModuleRequestPath = async (
     return ok({ filePath, modulePath, packageRoot, resolvedPath });
 };
 
-export const findNodeModulesRoot = async (startDir: string): Promise<Result<string>> => {
+const findNodeModulesRoot = async (startDir: string): Promise<Result<string>> => {
     let current = startDir;
     let fallback: string | undefined;
 
@@ -471,15 +471,15 @@ export const findNodeModulesRoot = async (startDir: string): Promise<Result<stri
     }
 };
 
-export type DevWatchRoot = {
+type DevWatchRoot = {
     path: string;
     recursive: boolean;
 };
 
-export type DevWatchTarget =
+type DevWatchTarget =
     { kind: "config" } | { kind: "directory"; path: string } | { kind: "ignore" } | { kind: "module"; modulePath: string };
 
-export type DevReloadHub<TCache> = {
+type DevReloadHub<TCache> = {
     cache: TCache;
     emit: (data: string) => void;
     reconfigure: (watchRoots: DevWatchRoot[]) => void;
@@ -501,7 +501,7 @@ const isIgnorableDevWatcherError = (error: unknown): boolean => {
     return errorCode === "ENOENT" || errorCode === "ENOTDIR";
 };
 
-export const classifyDevWatchTarget = ({
+const classifyDevWatchTarget = ({
     eventPath,
     fileStatus,
     filename,
@@ -536,7 +536,7 @@ export const classifyDevWatchTarget = ({
     return { kind: "ignore" };
 };
 
-export const formatDevWatcherIssue = (context: string, error: unknown): string | undefined => {
+const formatDevWatcherIssue = (context: string, error: unknown): string | undefined => {
     if (isIgnorableDevWatcherError(error)) {
         return undefined;
     }
@@ -551,7 +551,7 @@ const reportDevWatcherIssue = (context: string, error: unknown): void => {
     }
 };
 
-export const attachDevWatcherErrorHandler = (
+const attachDevWatcherErrorHandler = (
     watcher: { on: (event: string, handler: (error: unknown) => void) => unknown },
     context: string,
 ): void => {
@@ -560,7 +560,7 @@ export const attachDevWatcherErrorHandler = (
     });
 };
 
-export const shouldProcessDevWatchEvent = (
+const shouldProcessDevWatchEvent = (
     recentEvents: Map<string, number>,
     modulePath: string,
     now = Date.now(),
@@ -581,7 +581,7 @@ export const shouldProcessDevWatchEvent = (
     return true;
 };
 
-export const createDevReloadHub = <TCache>(
+const createDevReloadHub = <TCache>(
     watchDir: string,
     watchRoots: DevWatchRoot[],
     cache: TCache,
@@ -743,13 +743,13 @@ export const createDevReloadHub = <TCache>(
     };
 };
 
-export const createSSEResponse = <TCache>(hub: DevReloadHub<TCache>, signal: AbortSignal): Response => {
+const createSSEResponse = <TCache>(hub: DevReloadHub<TCache>, signal: AbortSignal): Response => {
     const listeners: Array<() => void> = [];
 
     const stream = new ReadableStream({
         start: (controller) => {
             const send = (data: string) => controller.enqueue(`data: ${data}\n\n`);
-            const timer = setInterval(() => controller.enqueue(":heartbeat\n\n"), 15000);
+            const timer = setInterval(() => controller.enqueue(":heartbeat\n\n"), 5000);
 
             const cleanup = () => {
                 clearInterval(timer);
@@ -775,7 +775,7 @@ export const createSSEResponse = <TCache>(hub: DevReloadHub<TCache>, signal: Abo
     });
 };
 
-export const resolveDevStaticAssetRequest = (
+const resolveDevStaticAssetRequest = (
     assetsDirs: ResolvedAssetsDir[],
     pathname: string,
 ): { physicalRoot: string; requestedPath: string } | null => {
@@ -827,7 +827,7 @@ const resolveDevSourceRoot = (rootDir: string, appComponentPath: string): string
     return topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir);
 };
 
-export const resolveDevWatchRoots = (
+const resolveDevWatchRoots = (
     rootDir: string,
     assetsDirs: ResolvedAssetsDir[],
     appComponentPath: string,
@@ -853,7 +853,7 @@ export const resolveDevWatchRoots = (
     );
 };
 
-export const deriveDevRuntimeState = async (
+const deriveDevRuntimeState = async (
     config: BuildSvelteOptions,
     cwd = process.cwd(),
 ): Promise<Result<DevRuntimeState>> => {
@@ -861,7 +861,21 @@ export const deriveDevRuntimeState = async (
     const mountId = config.mountId ?? "app";
     const appTitle = config.appTitle ?? "Svelte Builder";
     const appComponentPath = resolveConfiguredPath(rootDir, config.appComponent, "src/App.svelte");
-    const sourceRoot = resolveAppSourceRoot(rootDir, appComponentPath);
+    const sourceRoot = (() => {
+        const appComponentRelativeToRoot = relative(rootDir, appComponentPath);
+        if (appComponentRelativeToRoot.startsWith("..") || isAbsolute(appComponentRelativeToRoot)) {
+            return err(`Invalid appComponent in builder.ts: expected a path inside the project root.`);
+        }
+        const segments = appComponentRelativeToRoot.split(/[\\/]/).filter((segment) => segment.length > 0);
+        const [topLevelDir] = segments;
+        if (topLevelDir === undefined) {
+            return err(`Invalid appComponent in builder.ts: expected a component path inside src/ or another top-level source directory.`);
+        }
+        if (segments.length === 1) {
+            return ok(rootDir);
+        }
+        return ok(topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir));
+    })();
     if (!sourceRoot.ok) {
         return sourceRoot;
     }
@@ -871,7 +885,18 @@ export const deriveDevRuntimeState = async (
         return err(`Missing SPA app component: ${appComponentPath}`);
     }
 
-    const validatedAppComponentPath = validateResolvedAppComponentPath(rootDir, sourceRoot.value, appComponentPath);
+    const validatedAppComponentPath = (() => {
+        try {
+            const physicalPath = realpathSync(appComponentPath);
+            if (!isPathInsideRoot(rootDir, physicalPath) || !isPathInsideRoot(sourceRoot.value, physicalPath)) {
+                return err(`Invalid appComponent in builder.ts: symbolic links must resolve inside the app source tree (${sourceRoot.value}).`);
+            }
+
+            return ok(appComponentPath);
+        } catch {
+            return err(`Invalid appComponent in builder.ts: file does not exist: ${appComponentPath}.`);
+        }
+    })();
     if (!validatedAppComponentPath.ok) {
         return validatedAppComponentPath;
     }
@@ -901,8 +926,6 @@ export const deriveDevRuntimeState = async (
         watchRoots: resolveDevWatchRoots(rootDir, assetsDirs.value, appComponentPath),
     });
 };
-
-export type { DevRuntimeState };
 
 export const DEV_SPECIAL_IMPORTS = {
     "esm-env": "/_virtual/esm-env.js",
@@ -988,7 +1011,7 @@ const replaceImportSpecifier = (source: string, specifier: string, replacement: 
         .replace(sideEffectImportPattern, (_, quote: string) => `import ${quote}${replacement}${quote}`);
 };
 
-export const resolveBareImportPathForDev = async (specifier: string, importerPath: string): Promise<Result<string>> => {
+const resolveBareImportPathForDev = async (specifier: string, importerPath: string): Promise<Result<string>> => {
     const specialImport = DEV_SPECIAL_IMPORTS[specifier as keyof typeof DEV_SPECIAL_IMPORTS];
     if (specialImport !== undefined) {
         return ok(specialImport);
@@ -1065,7 +1088,7 @@ export const resolveBareImportPathForDev = async (specifier: string, importerPat
 
 const jsImportScanner = new Bun.Transpiler({ loader: "js" });
 
-export const rewriteBareImportsForDev = async (source: string, importerPath: string): Promise<Result<string>> => {
+const rewriteBareImportsForDev = async (source: string, importerPath: string): Promise<Result<string>> => {
     const specifiers = Array.from(
         new Set(
             jsImportScanner
@@ -1141,7 +1164,7 @@ const createDevHtmlShell = (importMapScript: string, mountId: string, appTitle: 
         `    ${importMapScript}`,
         "</head>",
         "<body>",
-        `    ${createHtmlShell(mountId, appTitle).appHtml}`,
+        `    <main id="${escapeHtml(mountId)}"></main>`,
         `    ${createDevLiveReloadScript()}`,
         '    <script type="module" src="/main.ts"></script>',
         "</body>",
@@ -1209,6 +1232,7 @@ const startServer = async (
                 ok(
                     createServerHandle(
                         Bun.serve({
+                            idleTimeout: 20,
                             error: ((serverError) => error(serverError)) as BunServeOptions["error"],
                             fetch: ((req) => fetch(req)) as BunServeOptions["fetch"],
                             port: nextPort,
@@ -1238,7 +1262,7 @@ const startServer = async (
     return err("Failed to start dev server.");
 };
 
-export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevServerHandle>> => {
+const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevServerHandle>> => {
     const config = await loadSvelteConfig(cwd);
     if (!config.ok) {
         return config;
@@ -1430,7 +1454,11 @@ export const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Resul
     });
 };
 
-export const runDevCli = async ({
+export const serve = async ({
+  cwd = process.cwd(),
+}: DevCliDependencies = {}): Promise<Result<DevServerHandle>> => runConfiguredDevServer(cwd);
+
+const runDevCli = async ({
     cwd = process.cwd(),
     error = console.error,
     log = console.log,

@@ -1,11 +1,10 @@
 import { realpathSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
-import { rm } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { ok, err, getErrorMessage, isPathWithinRoot, type Result } from "./utils";
 
 export const CONFIG_FILE_NAME = "builder.ts";
+const configTranspiler = new Bun.Transpiler({ loader: "ts" });
 
 export type BuildSvelteOptions = {
   appTitle?: string;
@@ -106,7 +105,7 @@ const readOptionalBooleanField = (
   return err(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected boolean.`);
 };
 
-export const validateMountId = (
+const validateMountId = (
   value: unknown,
   field: string,
 ): Result<string> => {
@@ -133,7 +132,7 @@ export const validateMountId = (
   return ok(normalizedMountId);
 };
 
-export const validateAppComponent = (
+const validateAppComponent = (
   value: unknown,
   field: string,
 ): Result<string> => {
@@ -236,18 +235,11 @@ export const loadSvelteConfig = async (
     return err(`Missing config: ${configPath}`);
   }
 
-  // Use a unique temp copy to bypass Bun's per-URL module cache
-  // so config file changes are picked up on dev reload without process restart.
-  const tempConfigPath = join(
-    configRoot,
-    `.builder.ts.${randomUUID().replace(/-/g, "")}.mjs`,
-  );
   try {
-    await Bun.write(
-      tempConfigPath,
-      await Bun.file(configPath).text(),
-    );
-    const loaded = await import(pathToFileURL(tempConfigPath).href);
+    const source = await Bun.file(configPath).text();
+    const transpiled = configTranspiler.transformSync(source);
+    const moduleSource = `${transpiled}\n//# sourceURL=${configPath}?v=${randomUUID()}\n`;
+    const loaded = await import(`data:text/javascript;base64,${Buffer.from(moduleSource, "utf8").toString("base64")}`);
     const parsed = parseBuildConfig(loaded.default, CONFIG_FILE_NAME);
     if (!parsed.ok) return parsed;
     return ok({
@@ -258,12 +250,10 @@ export const loadSvelteConfig = async (
     return err(
       `Failed to load ${configPath}: ${getErrorMessage(error)}`,
     );
-  } finally {
-    await rm(tempConfigPath, { force: true }).catch(() => undefined);
   }
 };
 
-export const resolveAppSourceRoot = (
+const resolveAppSourceRoot = (
   rootDir: string,
   appComponentPath: string,
   configFileName = CONFIG_FILE_NAME,
@@ -294,7 +284,7 @@ export const resolveAppSourceRoot = (
   );
 };
 
-export const validateResolvedAppComponentPath = (
+const validateResolvedAppComponentPath = (
   rootDir: string,
   appSourceRoot: string,
   resolvedAppComponentPath: string,

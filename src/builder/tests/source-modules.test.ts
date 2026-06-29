@@ -5,7 +5,7 @@ import {
   isSupportedLocalSourceModule,
   isSupportedSvelteSourceModule,
   isSupportedTypeScriptSourceModule,
-} from "../build";
+} from "../build-internals";
 
 describe("source-modules", () => {
   describe("isSupportedSvelteSourceModule", () => {

@@ -30,12 +30,19 @@ afterEach(async () => {
 
 test("loadSvelteConfig loads a default-exported builder.ts config", async () => {
     const rootDir = await createTempProject(`
+        type BuilderConfig = {
+            appComponent?: string;
+            appTitle?: string;
+            outDir?: string;
+            stripSvelteDiagnostics?: boolean;
+        };
+
         export default {
             appComponent: "src/App.svelte",
             appTitle: "Builder TS",
             outDir: ".build",
             stripSvelteDiagnostics: true
-        };
+        } satisfies BuilderConfig;
     `);
 
     const result = await loadSvelteConfig(rootDir);
@@ -48,6 +55,32 @@ test("loadSvelteConfig loads a default-exported builder.ts config", async () => 
     expect(result.value.appTitle).toBe("Builder TS");
     expect(result.value.appComponent).toBe("src/App.svelte");
     expect(result.value.rootDir).toBe(rootDir);
+});
+
+test("loadSvelteConfig accepts TypeScript syntax in builder.ts", async () => {
+    const rootDir = await createTempProject(`
+        interface BuilderConfig {
+            appTitle: string;
+            mountId?: string;
+        }
+
+        const config: BuilderConfig = {
+            appTitle: "Typed Builder",
+            mountId: "app:root"
+        };
+
+        export default config;
+    `);
+
+    const result = await loadSvelteConfig(rootDir);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+        throw new Error(result.error);
+    }
+
+    expect(result.value.appTitle).toBe("Typed Builder");
+    expect(result.value.mountId).toBe("app:root");
 });
 
 test("loadSvelteConfig rejects legacy JSON config files when builder.ts is absent", async () => {

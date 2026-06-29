@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { resolveBareImportPathForDev } from "../dev";
+import { resolveBareImportPathForDev } from "../dev-internals";
 
 const createTempSveltePackage = async () => {
     const rootDir = `/tmp/svelte-builder-dev-imports-${Date.now()}-${Math.random().toString(16).slice(2)}`;

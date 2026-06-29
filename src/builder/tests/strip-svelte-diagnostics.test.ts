@@ -2,8 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { buildSvelte } from "../build";
-import { stripSvelteDiagnosticsModule } from "../build";
+import { build } from "../build";
+import { stripSvelteDiagnosticsModule } from "../build-internals";
 
 const tempDirs: string[] = [];
 
@@ -60,7 +60,7 @@ test("stripSvelteDiagnosticsModule keeps export-star lines while replacing expor
 
 test("buildSvelte strips diagnostics from shared Svelte runtime error modules", async () => {
     const rootDir = await createTempBuildProject();
-    const result = await buildSvelte({
+    const result = await build({
         appComponent: "src/App.svelte",
         outDir: ".build",
         rootDir,

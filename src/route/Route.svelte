@@ -1,104 +1,16 @@
 <script lang="ts">
-    import {
-        getCurrentSearch,
-        getMatchedRouteId,
-        initRouteSystem,
-        registerRoute,
-        subscribeRuntime,
-    } from "./router.svelte.ts";
+    import { getCurrentSearch, getMatchedRouteId, initRuntime, registerRoute, subscribeRuntime } from "./runtime.ts";
     import { decodeRouteProps } from "./query.ts";
-    import {
-        isPromiseLike,
-        resolveLazyRouteComponent,
-    } from "./route-validation.ts";
-    import type {
-        LazyRouteLoader,
-        RouteComponent,
-        RouteDecoder,
-        RouteDecoderMap,
-        RouteEntry,
-        SyncRouteComponent,
-    } from "./types.ts";
+    import { isPromiseLike, resolveLazyRouteComponent } from "./lazy.ts";
+    import { validateRouteConfig } from "./validation.ts";
+    import type { RouteEntry, SyncRouteComponent } from "./types.ts";
 
-    type RouteConfig = {
-        path: string;
-        component: RouteComponent;
-    };
+    const routeConfigInput = $props();
 
-    type RouteConfigInput = RouteConfig & Record<string, unknown>;
+    initRuntime();
 
-    type ValidatedRouteConfig = RouteConfig & {
-        decoders: RouteDecoderMap;
-    };
-
-    let routeConfigInput = $props();
-
-    const isDecoder = ((value) =>
-        value === String ||
-        value === Number ||
-        value === Boolean ||
-        typeof value === "function") as (
-        value: unknown,
-    ) => value is RouteDecoder;
-
-    const validateRouteConfig = (): ValidatedRouteConfig => {
-        const config = routeConfigInput as RouteConfigInput;
-
-        if (typeof config.path !== "string") {
-            throw new Error("Route path must be a string");
-        }
-
-        if (
-            config.path !== "*" &&
-            (!config.path.startsWith("/") ||
-                config.path.startsWith("//") ||
-                config.path.includes("?") ||
-                config.path.includes("#") ||
-                config.path
-                    .split("/")
-                    .some((segment) => segment === "." || segment === ".."))
-        ) {
-            throw new Error(
-                'Route path must be "*" or an absolute pathname without query or hash',
-            );
-        }
-
-        const decoders = {} as RouteDecoderMap;
-        const isLazyComponent =
-            typeof config.component === "function" && config.component.length === 0;
-
-        if (!isLazyComponent && typeof config.component !== "function") {
-            throw new Error("Invalid Route component");
-        }
-
-        for (const key in config) {
-            if (key === "path" || key === "component") {
-                continue;
-            }
-
-            if (!key.startsWith("$")) {
-                throw new Error(`Unsupported Route config: ${key}`);
-            }
-
-            const decoder = config[key];
-            if (!isDecoder(decoder)) {
-                throw new Error(`Invalid Route decoder: ${key}`);
-            }
-
-            decoders[key as keyof RouteDecoderMap] = decoder;
-        }
-
-        return {
-            path: config.path,
-            component: config.component,
-            decoders,
-        };
-    };
-
-    initRouteSystem();
-
-    const config = validateRouteConfig();
-    const initialComponent = config.component;
+    const readRouteConfig = () => validateRouteConfig(routeConfigInput as Record<string, unknown>);
+    const config = readRouteConfig();
     const entry = {
         id: Symbol(config.path),
         path: config.path,
@@ -111,11 +23,7 @@
     });
     const unregister = registerRoute(entry);
     let resolvedComponent = $state<SyncRouteComponent | null>(null);
-    let lazyLoader = $state<LazyRouteLoader | null>(
-        typeof initialComponent === "function" && initialComponent.length === 0
-            ? (initialComponent as LazyRouteLoader)
-            : null,
-    );
+    let lazyLoader = $state(config.lazyLoader);
     let pendingLoad = $state<Promise<{ default: SyncRouteComponent }> | null>(
         null,
     );
@@ -124,27 +32,23 @@
     let destroyed = false;
 
     $effect(() => {
-        const nextConfig = validateRouteConfig();
-        const nextDecoderKeys = Object.keys(nextConfig.decoders);
-        const initialDecoderKeys = Object.keys(config.decoders);
+        runtimeVersion;
+        const nextConfig = readRouteConfig();
 
         if (nextConfig.path !== config.path) {
             throw new Error("Route path cannot change after mount");
         }
 
-        if (nextConfig.component !== initialComponent) {
+        if (nextConfig.component !== config.component) {
             throw new Error("Route component cannot change after mount");
         }
 
-        if (nextDecoderKeys.length !== initialDecoderKeys.length) {
+        if (Object.keys(nextConfig.decoders).length !== Object.keys(config.decoders).length) {
             throw new Error("Route decoders cannot change after mount");
         }
 
-        for (const key of nextDecoderKeys) {
-            if (
-                nextConfig.decoders[key as keyof RouteDecoderMap] !==
-                config.decoders[key as keyof RouteDecoderMap]
-            ) {
+        for (const key in nextConfig.decoders) {
+            if (nextConfig.decoders[key as keyof typeof nextConfig.decoders] !== config.decoders[key as keyof typeof config.decoders]) {
                 throw new Error("Route decoders cannot change after mount");
             }
         }
@@ -178,9 +82,6 @@
             : {};
     });
 
-    const isCurrentRouteActive = (): boolean =>
-        getMatchedRouteId() === entry.id;
-
     $effect(() => {
         loadError = null;
 
@@ -195,7 +96,7 @@
         }
 
         if (!lazyLoader) {
-            resolvedComponent = initialComponent as SyncRouteComponent;
+            resolvedComponent = config.component as SyncRouteComponent;
             return;
         }
 
@@ -240,7 +141,7 @@
                 if (!destroyed) {
                     pendingLoad = null;
 
-                    if (isCurrentRouteActive()) {
+                    if (getMatchedRouteId() === entry.id) {
                         lazyFailed = true;
                         loadError = error;
                     }

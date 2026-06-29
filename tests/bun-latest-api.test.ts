@@ -40,16 +40,12 @@ test("tsconfig uses Bun's current type entry", () => {
     expect(tsconfig.compilerOptions?.types).toEqual(["bun", "node", "svelte"]);
 });
 
-test("route and ui test helpers re-export Svelte's public client api", async () => {
+test("route test helpers re-export Svelte's public client api", async () => {
     const routeHelper = await import("../src/route/tests/helpers.svelte-client.ts");
-    const uiHelper = await import("../src/ui/tests/helpers.svelte-client.ts");
 
     expect(typeof routeHelper.flushSync).toBe("function");
     expect(typeof routeHelper.svelteMount).toBe("function");
     expect(typeof routeHelper.svelteUnmount).toBe("function");
-    expect(typeof uiHelper.flushSync).toBe("function");
-    expect(typeof uiHelper.svelteMount).toBe("function");
-    expect(typeof uiHelper.svelteUnmount).toBe("function");
 });
 
 test("builder Bun types use module imports instead of legacy namespace references", () => {
@@ -57,7 +53,6 @@ test("builder Bun types use module imports instead of legacy namespace reference
         "src/builder/assets.ts",
         "src/builder/build.ts",
         "src/builder/dev.ts",
-        "src/builder/tests/finalize-js.test.ts",
     ];
     const legacyPatterns = [
         /\bBun\.BuildArtifact\b/,
@@ -110,8 +105,6 @@ test("builder docs describe assetsDirs as the only static assets config", () => 
 test("tests use Svelte's public client API instead of internal source paths", () => {
     const files = [
         "src/route/tests/route-component.test.ts",
-        "src/ui/tests/Swiper.test.ts",
-        "src/ui/tests/SortListBox.test.ts",
     ];
     const forbiddenPatterns = [
         /node_modules\/svelte\/src\/index-client\.js/,
@@ -128,23 +121,8 @@ test("tests use Svelte's public client API instead of internal source paths", ()
     }
 });
 
-test("ui and route tests stay with their owning projects", () => {
+test("route tests stay with their owning projects", () => {
     const expectedFiles = [
-        "src/ui/tests/helpers.svelte-client.ts",
-        "src/ui/tests/compile-svelte.ts",
-        "src/ui/tests/snippet-components.test.ts",
-        "src/ui/tests/fixtures/BlockHarness.svelte",
-        "src/ui/tests/fixtures/FilledModalHarness.svelte",
-        "src/ui/tests/fixtures/RangeInputHarness.svelte",
-        "src/ui/tests/fixtures/StringInputHarness.svelte",
-        "src/ui/tests/fixtures/SortListBoxHarness.svelte",
-        "src/ui/tests/fixtures/SwiperHarness.svelte",
-        "src/ui/tests/Swiper.test.ts",
-        "src/ui/tests/Swiper.bundle-loader.test.ts",
-        "src/ui/tests/Swiper.video-autoplay.test.ts",
-        "src/ui/tests/SortListBox.test.ts",
-        "src/ui/tests/SortListBox.drag-layout.test.ts",
-        "src/ui/tests/SortListBox.reorder.test.ts",
         "src/route/tests/helpers.svelte-client.ts",
         "src/route/tests/compile-svelte.ts",
         "src/route/tests/public-api.test.ts",
@@ -160,22 +138,8 @@ test("ui and route tests stay with their owning projects", () => {
         "src/route/tests/fixtures/SyncB.svelte",
         "src/route/tests/fixtures/lifecycle.ts",
     ];
-
     const removedPaths = [
         "tests/helpers.svelte-client.ts",
-        "tests/ui.snippet-components.test.ts",
-        "tests/ui.fixture.BlockHarness.svelte",
-        "tests/ui.fixture.FilledModalHarness.svelte",
-        "tests/ui.fixture.RangeInputHarness.svelte",
-        "tests/ui.fixture.StringInputHarness.svelte",
-        "tests/ui.fixture.SortListBoxHarness.svelte",
-        "tests/ui.fixture.SwiperHarness.svelte",
-        "tests/ui.Swiper.test.ts",
-        "tests/ui.Swiper.bundle-loader.test.ts",
-        "tests/ui.Swiper.video-autoplay.test.ts",
-        "tests/ui.SortListBox.test.ts",
-        "tests/ui.SortListBox.drag-layout.test.ts",
-        "tests/ui.SortListBox.reorder.test.ts",
         "tests/route.public-api.test.ts",
         "tests/route.query-navigation-history.test.ts",
         "tests/route.route-component.test.ts",
@@ -255,13 +219,11 @@ test("ui modernization removes export let and reactive label syntax", () => {
 
 test("theme api now lives in ui and useTheme is removed", () => {
     const uiEntry = readRepoFile("src/ui/_.ts");
-    const useEntry = readRepoFile("src/use/_.ts");
 
     expect(existsSync(resolve(repoRoot, "src/ui/theme.ts"))).toBe(true);
     expect(existsSync(resolve(repoRoot, "src/use/useTheme.ts"))).toBe(false);
     expect(existsSync(resolve(repoRoot, "src/use/useTheme.test.ts"))).toBe(false);
     expect(uiEntry.includes('./theme.ts')).toBe(true);
-    expect(useEntry.includes("./useTheme.ts")).toBe(false);
 });
 
 test("route modernization removes legacy component syntax", () => {

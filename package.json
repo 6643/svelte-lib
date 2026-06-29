@@ -5,7 +5,7 @@
     "exports": {
         ".": "./src/_.ts",
         "./ui": "./src/ui/_.ts",
-        "./use": "./src/use/_.ts",
+        "./use": "./src/ui/_.ts",
         "./route": "./src/route/_.ts",
         "./builder": "./src/builder/_.ts",
         "./package.json": "./package.json",

@@ -1,14 +1,8 @@
-import type { SyncRouteComponent } from './types.ts';
-
-export const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
-  !!value && (typeof value === 'object' || typeof value === 'function') && typeof (value as { then?: unknown }).then === 'function';
-
-export const resolveLazyRouteComponent = (module: unknown): SyncRouteComponent => {
-  const resolvedDefault = module && typeof module === 'object' ? (module as { default?: unknown }).default : undefined;
-
-  if (typeof resolvedDefault !== 'function') {
-    throw new Error('Lazy route component must resolve to a module with a default component export');
-  }
-
-  return resolvedDefault as SyncRouteComponent;
-};
+export { isPromiseLike, resolveLazyRouteComponent } from './lazy.ts';
+export {
+  isLazyRouteLoader,
+  isRouteDecoder,
+  isRoutePath,
+  validateRouteConfig
+} from './validation.ts';
+export type { ValidatedRouteConfig } from './validation.ts';

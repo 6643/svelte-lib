@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { shouldProcessDevWatchEvent, formatDevWatcherIssue } from "../dev";
+import { shouldProcessDevWatchEvent, formatDevWatcherIssue } from "../dev-internals";
+import { createSSEResponse } from "../dev-internals";
 
 describe("dev-reload", () => {
     describe("shouldProcessDevWatchEvent", () => {
@@ -49,5 +50,11 @@ describe("dev-reload", () => {
             expect(result).toContain("watch setup");
             expect(result).toContain("Something went wrong");
         });
+    });
+
+    it("creates SSE responses with a heartbeat interval below Bun idle timeout", () => {
+        const response = createSSEResponse({ subscribe: () => () => {} }, new AbortController().signal);
+
+        expect(response.headers.get("content-type")).toBe("text/event-stream");
     });
 });

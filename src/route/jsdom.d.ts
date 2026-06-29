@@ -1,11 +1,11 @@
-declare module 'jsdom' {
-  export type JSDOMOptions = {
-    url?: string;
-  };
+declare module "jsdom" {
+    export type JSDOMOptions = {
+        url?: string;
+    };
 
-  export class JSDOM {
-    window: Window & typeof globalThis;
+    export class JSDOM {
+        window: Window & typeof globalThis;
 
-    constructor(html?: string, options?: JSDOMOptions);
-  }
+        constructor(html?: string, options?: JSDOMOptions);
+    }
 }

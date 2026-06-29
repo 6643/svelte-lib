@@ -4,4 +4,4 @@ export {
   routeCurrentPath,
   routePush,
   routeReplace
-} from './router.svelte.ts';
+} from './runtime.ts';

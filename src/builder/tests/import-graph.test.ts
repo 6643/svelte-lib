@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 
-import { validateLocalSourceImportGraph } from "../build";
+import { validateLocalSourceImportGraph } from "../build-internals";
 
 test("validateLocalSourceImportGraph rejects app-local package imports that escape the app source tree", async () => {
     const rootDir = `/tmp/svelte-builder-import-graph-${Date.now()}-${Math.random().toString(16).slice(2)}`;

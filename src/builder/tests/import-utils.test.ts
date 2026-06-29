@@ -8,7 +8,7 @@ import {
     isRelativeImportSpecifier,
     skipQuotedString,
     skipWhitespaceAndComments,
-} from "../build";
+} from "../build-internals";
 
 test("isRelativeImportSpecifier returns true for ./ and ../ specifiers", () => {
     expect(isRelativeImportSpecifier("./foo")).toBe(true);

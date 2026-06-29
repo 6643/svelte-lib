@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { resolveSvelteBrowserImportPath, validateSvelteBrowserImportAliases } from "../build";
+import { resolveSvelteBrowserImportPath, validateSvelteBrowserImportAliases } from "../build-internals";
 
 test("resolveSvelteBrowserImportPath resolves runtime imports from the nearest svelte package root", async () => {
     const rootDir = `/tmp/svelte-runtime-alias-local-${Date.now()}-${Math.random().toString(16).slice(2)}`;
