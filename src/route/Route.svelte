@@ -24,9 +24,7 @@
     const unregister = registerRoute(entry);
     let resolvedComponent = $state<SyncRouteComponent | null>(null);
     let lazyLoader = $state(config.lazyLoader);
-    let pendingLoad = $state<Promise<{ default: SyncRouteComponent }> | null>(
-        null,
-    );
+    let pendingLoad = $state<Promise<{ default: SyncRouteComponent }> | null>(null);
     let lazyFailed = $state(false);
     let loadError = $state<unknown | null>(null);
     let destroyed = false;
@@ -48,7 +46,10 @@
         }
 
         for (const key in nextConfig.decoders) {
-            if (nextConfig.decoders[key as keyof typeof nextConfig.decoders] !== config.decoders[key as keyof typeof config.decoders]) {
+            if (
+                nextConfig.decoders[key as keyof typeof nextConfig.decoders] !==
+                config.decoders[key as keyof typeof config.decoders]
+            ) {
                 throw new Error("Route decoders cannot change after mount");
             }
         }
@@ -77,9 +78,7 @@
 
     const decodedProps = $derived.by(() => {
         runtimeVersion;
-        return active
-            ? decodeRouteProps(getCurrentSearch(), entry.decoders)
-            : {};
+        return active ? decodeRouteProps(getCurrentSearch(), entry.decoders) : {};
     });
 
     $effect(() => {
@@ -110,13 +109,7 @@
     });
 
     $effect(() => {
-        if (
-            !active ||
-            resolvedComponent ||
-            !lazyLoader ||
-            pendingLoad ||
-            lazyFailed
-        ) {
+        if (!active || resolvedComponent || !lazyLoader || pendingLoad || lazyFailed) {
             return;
         }
 

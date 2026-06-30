@@ -172,58 +172,11 @@ test("README documents the repository test layout policy", () => {
     expect(readme.includes("根 `tests/` 只保留仓库级、包级和公开 API 契约测试")).toBe(true);
 });
 
-test("targeted public components no longer use slot markup or on: directives", () => {
-    const files = [
-        "src/ui/Button.filled.svelte",
-        "src/ui/Button.icon.svelte",
-        "src/ui/Button.text.svelte",
-        "src/ui/Block.svelte",
-        "src/ui/Input.range.svelte",
-        "src/ui/Input.string.svelte",
-        "src/ui/Modal.filled.svelte",
-        "src/ui/Plyr.svelte",
-        "src/ui/SortListBox.svelte",
-        "src/ui/Swiper.svelte",
-    ];
-
-    for (const file of files) {
-        const source = readRepoFile(file);
-
-        expect(source.includes("<slot")).toBe(false);
-        expect(/\son:[a-z]/.test(source)).toBe(false);
-    }
-});
-
-test("ui modernization removes export let and reactive label syntax", () => {
-    const files = [
-        "src/ui/Block.svelte",
-        "src/ui/Button.filled.svelte",
-        "src/ui/Button.icon.svelte",
-        "src/ui/Button.text.svelte",
-        "src/ui/Input.range.svelte",
-        "src/ui/Input.string.svelte",
-        "src/ui/Modal.filled.svelte",
-        "src/ui/Plyr.svelte",
-        "src/ui/Swiper.svelte",
-    ];
-    const forbiddenPatterns = [/\bexport let\b/, /\n\s*\$:\s/];
-
-    for (const file of files) {
-        const source = readRepoFile(file);
-
-        for (const pattern of forbiddenPatterns) {
-            expect(pattern.test(source)).toBe(false);
-        }
-    }
-});
-
-test("theme api now lives in ui and useTheme is removed", () => {
+test("ui surface now exposes SvgIcon and icon constants", () => {
     const uiEntry = readRepoFile("src/ui/_.ts");
 
-    expect(existsSync(resolve(repoRoot, "src/ui/theme.ts"))).toBe(true);
-    expect(existsSync(resolve(repoRoot, "src/use/useTheme.ts"))).toBe(false);
-    expect(existsSync(resolve(repoRoot, "src/use/useTheme.test.ts"))).toBe(false);
-    expect(uiEntry.includes('./theme.ts')).toBe(true);
+    expect(uiEntry.includes("SvgIcon")).toBe(true);
+    expect(uiEntry.includes("svgicons.ts")).toBe(true);
 });
 
 test("route modernization removes legacy component syntax", () => {
@@ -247,48 +200,14 @@ test("builder modernization stays in runtime/support-code scope because builder 
     expect(builderSvelteFiles).toEqual([]);
 });
 
-test("ui runtime files are flattened and button variants use the Button.* naming scheme", () => {
-    const expectedFiles = [
-        "src/ui/Block.svelte",
-        "src/ui/Button.filled.svelte",
-        "src/ui/Button.icon.svelte",
-        "src/ui/Button.text.svelte",
-        "src/ui/Input.range.svelte",
-        "src/ui/Input.string.svelte",
-        "src/ui/Modal.filled.svelte",
-        "src/ui/Plyr.svelte",
-        "src/ui/SortListBox.svelte",
-        "src/ui/SortListBox.drag-layout.ts",
-        "src/ui/SortListBox.reorder.ts",
-        "src/ui/Swiper.svelte",
-        "src/ui/Swiper.bundle-loader.ts",
-        "src/ui/Swiper.video-autoplay.ts",
-    ];
-
-    const removedPaths = [
-        "src/ui/box/Block.svelte",
-        "src/ui/button/FilledButton.svelte",
-        "src/ui/button/IconButton.svelte",
-        "src/ui/button/TextButton.svelte",
-        "src/ui/input/RangeInput.svelte",
-        "src/ui/input/StringInput.svelte",
-        "src/ui/modal/FilledModal.svelte",
-        "src/ui/plyr/Plyr.svelte",
-        "src/ui/sort-list-box/SortListBox.svelte",
-        "src/ui/sort-list-box/drag-layout.ts",
-        "src/ui/sort-list-box/reorder.ts",
-        "src/ui/swiper/Swiper.svelte",
-        "src/ui/swiper/swiper-bundle-loader.ts",
-        "src/ui/swiper/video-autoplay.ts",
-    ];
-
-    for (const path of expectedFiles) {
-        expect(existsSync(resolve(repoRoot, path))).toBe(true);
-    }
-
-    for (const path of removedPaths) {
-        expect(existsSync(resolve(repoRoot, path))).toBe(false);
-    }
+test("ui surface now ships SvgIcon and the icon table", () => {
+    expect(existsSync(resolve(repoRoot, "src/ui/SvgIcon.svelte"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/ui/svgicons.ts"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/ui/FilledButton.svelte"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/ui/IconButton.svelte"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/ui/OutlinedButton.svelte"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/ui/TextButton.svelte"))).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/ui/_.ts"))).toBe(true);
 });
 
 test("builder README documents the intentional Svelte internal runtime boundary", () => {

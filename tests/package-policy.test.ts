@@ -19,6 +19,7 @@ test("root package owns builder dependency policy without pretending to be a bui
 
     expect(rootPackage.devDependencies).toEqual({
         "@types/bun": "latest",
+        "@types/jsdom": "latest",
         "@types/node": "latest",
         jsdom: "latest",
         svelte: "latest",

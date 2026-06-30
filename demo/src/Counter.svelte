@@ -1,7 +1,7 @@
 <script lang="ts">
     let count = $state(0);
-    const increment = () => count += 1;
-    const decrement = () => count -= 1;
+    const increment = () => (count += 1);
+    const decrement = () => (count -= 1);
 </script>
 
 <div class="counter">

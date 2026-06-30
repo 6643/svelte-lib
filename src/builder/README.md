@@ -8,18 +8,17 @@
 
 统一配置文件名是 `builder.ts`。
 
-配置通过 `builder.ts` 的默认导出提供。旧的 `svelte-builder.config.json` 已不再支持; 如果你仍在使用它, 请迁移并重命名为 `builder.ts`。
+配置只通过 `builder.ts` 的默认导出提供。
 
 配置文件采用严格字段校验:
 
 - 未知顶层字段会直接报错, 避免拼写错误静默回退到默认值
-- `rootDir` 仍会被兼容性地忽略, 因为项目根目录由配置文件所在目录自动推导
+- `rootDir` 由配置文件所在目录自动推导
 
 这个构建器只支持 SPA：
 
 - 固定 SPA 入口由 `appComponent` 指定, 默认 `src/App.svelte`
 - 不支持多页面
-- `entrypoint` 已删除
 - `appComponent` 默认 `src/App.svelte`
 - `appComponent` 必须位于 `src/` 或其他顶级源码目录下, 不支持直接把组件放在项目根目录
 - 配置文件所在目录会自动作为项目根, `rootDir` 是内部推导值, 不需要手填
@@ -27,7 +26,6 @@
 HTML 一律使用内置页面壳：
 
 - build/dev 都不读取 `src/index.html`
-- `htmlTemplate` 已删除
 - 默认根容器固定为 `<main id="app"></main>`
 - 默认标题固定为 `Svelte Builder`
 
@@ -140,7 +138,6 @@ src/lazy/ButtonDemo.svelte   2026-03-18 11:11:11  4.1 KiB  1.9 KiB
 
 - 配置文件固定为 `builder.ts`, 它通过默认导出提供构建配置, 同时也是项目根目录与所有默认值的唯一锚点
 - `builder.ts` 会作为模块直接执行, 然后读取它的默认导出; 只应在可信项目里运行, 不要把它当成纯声明式配置文件
-- 旧的 `svelte-builder.config.json` 已不再支持; 若项目中仍存在该文件, 请迁移并重命名为 `builder.ts`
 - 开发服务器的设计目标是本地开发, 不应当作为公网服务暴露; 当前 HTTP 500 响应会对客户端隐藏内部错误细节, 但控制台仍会输出完整异常, 方便本地排查
 - 开发服务器只暴露受控 app 源码树、`/_node_modules/*` 和各静态资源目录对应的 URL 前缀, 并对路径穿越与符号链接逃逸做了边界校验, 但这不等于适合承载不可信访问流量
 - 若当前环境里的 `fs.watch` 不可用, 开发服务器会直接输出 watcher 错误; 当前不再内置 polling fallback
@@ -185,12 +182,6 @@ svelte-build
 ```
 
 当前仓库不再在 `src/builder/` 目录内内置示例组件或自用联调项目，也不再维护顶层样例 app。
-
-因此当前 builder modernization 的边界是：
-
-- 继续收敛运行时与支撑代码到当前仓库标准
-- 保留必要的 `Svelte internal` 兼容边界
-- 不为已经删除的 `builder` 自有 `.svelte` 示例组件保留旧语法兼容层
 
 建议的回归验证方式是：
 

@@ -1,7 +1,2 @@
-export { default as Route } from './Route.svelte';
-export {
-  routeBackPath,
-  routeCurrentPath,
-  routePush,
-  routeReplace
-} from './runtime.ts';
+export { default as Route } from "./Route.svelte";
+export { routeBackPath, routeCurrentPath, routePush, routeReplace } from "./runtime.ts";

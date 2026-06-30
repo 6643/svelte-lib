@@ -6,12 +6,10 @@ import * as route from "../src/route/_.ts";
 import * as builder from "../src/builder/_.ts";
 
 test("svelte-lib exports the expected public entry points", () => {
-    expect("Block" in lib).toBe(true);
-    expect("IconButton" in lib).toBe(true);
-    expect("Swiper" in ui).toBe(true);
-    expect("setTheme" in ui).toBe(true);
-    expect("setLightTheme" in ui).toBe(true);
-    expect("setDarkTheme" in ui).toBe(true);
+    expect("SvgIcon" in lib).toBe(true);
+    expect("icon_add" in lib).toBe(true);
+    expect("SvgIcon" in ui).toBe(true);
+    expect("icon_add" in ui).toBe(true);
     expect("Route" in route).toBe(true);
     expect("build" in builder).toBe(true);
     expect("serve" in builder).toBe(true);
