@@ -15,7 +15,7 @@ const ensureFullscreenRuntime = () => {
     fullscreenListenerBound = true;
 };
 
-export const useFullScreen = () => {
+export const fullscreenState = () => {
     ensureFullscreenRuntime();
 
     const toggleFullScreen = async () => {

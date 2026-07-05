@@ -18,16 +18,16 @@ const installDom = () => {
     };
 };
 
-test("useFullScreen exposes fullscreen as rune state", async () => {
+test("fullscreenState exposes fullscreen as rune state", async () => {
     const cleanup = installDom();
-    const { useFullScreen } = await loadRuneModule<{
-        useFullScreen: () => {
+    const { fullscreenState } = await loadRuneModule<{
+        fullscreenState: () => {
             isFullscreen: { value: boolean };
             toggleFullScreen: () => Promise<void>;
         };
     }>("./useFullScreen.svelte.ts", import.meta.url);
 
-    const fullScreen = useFullScreen();
+    const fullScreen = fullscreenState();
 
     expect(fullScreen.isFullscreen.value).toBe(false);
     expect(typeof fullScreen.toggleFullScreen).toBe("function");

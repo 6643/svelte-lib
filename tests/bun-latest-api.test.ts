@@ -293,9 +293,11 @@ test("util shared state modules use rune state instead of svelte stores", () => 
         expect(source.includes("svelte/store")).toBe(false);
     }
 
-    expect(readRepoFile("src/util/useStorage.svelte.ts").includes("$state")).toBe(true);
-    expect(readRepoFile("src/util/useFullScreen.svelte.ts").includes("$state")).toBe(true);
-    expect(readRepoFile("src/util/useWakeLock.svelte.ts").includes("$state")).toBe(true);
+    expect(readRepoFile("src/util/useStorage.svelte.ts").includes("export const storageState")).toBe(true);
+    expect(readRepoFile("src/util/useFullScreen.svelte.ts").includes("export const fullscreenState")).toBe(true);
+    expect(readRepoFile("src/util/useWakeLock.svelte.ts").includes("export const wakeLockState")).toBe(true);
+    expect(readRepoFile("src/util/color.svelte.ts").includes("export const themeState")).toBe(true);
+    expect(readRepoFile("src/util/color.svelte.ts").includes("export const accentState")).toBe(true);
     expect(readRepoFile("src/util/color.svelte.ts").includes("./useStorage.svelte.ts")).toBe(true);
 
     expect(existsSync(resolve(repoRoot, "src/util/color.ts"))).toBe(false);

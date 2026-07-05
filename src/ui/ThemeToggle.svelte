@@ -1,9 +1,9 @@
 <script lang="ts">
-    import { toggleTheme, useTheme, type ThemeMode } from "../util/color.svelte.ts";
+    import { themeState, toggleTheme, type ThemeMode } from "../util/color.svelte.ts";
     import { icon_dark_mode, icon_light_mode } from "./svgicons.ts";
     import SvgIcon from "./SvgIcon.svelte";
 
-    const theme = useTheme();
+    const theme = themeState();
     const iconFor = (mode: ThemeMode) => (mode === "dark" ? icon_light_mode : icon_dark_mode);
 </script>
 

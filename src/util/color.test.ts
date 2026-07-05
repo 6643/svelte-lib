@@ -13,8 +13,8 @@ const loadColorModule = async () =>
     loadRuneModule<{
         __resetColorStateForTest: () => void;
         accentColors: readonly { name: string; value: string }[];
-        useAccent: () => ColorState<string>;
-        useTheme: () => ColorState<ThemeMode>;
+        accentState: () => ColorState<string>;
+        themeState: () => ColorState<ThemeMode>;
     }>("./color.svelte.ts", import.meta.url);
 
 const installDom = (theme = "", accent = "") => {
@@ -38,12 +38,12 @@ const installDom = (theme = "", accent = "") => {
     };
 };
 
-test("useTheme reads storage and updates the theme attribute", async () => {
-    const { __resetColorStateForTest, useTheme } = await loadColorModule();
+test("themeState reads storage and updates the theme attribute", async () => {
+    const { __resetColorStateForTest, themeState } = await loadColorModule();
     const cleanup = installDom(JSON.stringify("dark"));
     __resetColorStateForTest();
 
-    const theme = useTheme();
+    const theme = themeState();
 
     expect(theme.value).toBe("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
@@ -52,12 +52,12 @@ test("useTheme reads storage and updates the theme attribute", async () => {
     cleanup();
 });
 
-test("theme state updates storage and theme attribute", async () => {
-    const { __resetColorStateForTest, useTheme } = await loadColorModule();
+test("themeState updates storage and theme attribute", async () => {
+    const { __resetColorStateForTest, themeState } = await loadColorModule();
     const cleanup = installDom("light");
     __resetColorStateForTest();
 
-    const theme = useTheme();
+    const theme = themeState();
     theme.set("dark");
 
     expect(theme.value).toBe("dark");
@@ -67,12 +67,12 @@ test("theme state updates storage and theme attribute", async () => {
     cleanup();
 });
 
-test("useTheme normalizes invalid stored values across state, DOM, and storage", async () => {
-    const { __resetColorStateForTest, useTheme } = await loadColorModule();
+test("themeState normalizes invalid stored values across state, DOM, and storage", async () => {
+    const { __resetColorStateForTest, themeState } = await loadColorModule();
     const cleanup = installDom(JSON.stringify("blue"));
     __resetColorStateForTest();
 
-    const theme = useTheme();
+    const theme = themeState();
 
     expect(theme.value).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
@@ -81,12 +81,12 @@ test("useTheme normalizes invalid stored values across state, DOM, and storage",
     cleanup();
 });
 
-test("accent state reads storage and updates the CSS variable", async () => {
-    const { __resetColorStateForTest, accentColors, useAccent } = await loadColorModule();
+test("accentState reads storage and updates the CSS variable", async () => {
+    const { __resetColorStateForTest, accentColors, accentState } = await loadColorModule();
     const cleanup = installDom("", JSON.stringify("#ff00aa"));
     __resetColorStateForTest();
 
-    const accent = useAccent();
+    const accent = accentState();
 
     expect(accent.value).toBe("#ff00aa");
     expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#ff00aa");

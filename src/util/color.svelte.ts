@@ -1,4 +1,4 @@
-import { useStorage, type StorageState } from "./useStorage.svelte.ts";
+import { storageState, type StorageState } from "./useStorage.svelte.ts";
 
 export type ThemeMode = "dark" | "light";
 
@@ -19,8 +19,8 @@ const defaultAccent: string = accentColors[0].value;
 
 type ColorState<T> = StorageState<T>;
 
-let themeState: ColorState<ThemeMode> | undefined;
-let accentState: ColorState<string> | undefined;
+let currentThemeState: ColorState<ThemeMode> | undefined;
+let currentAccentState: ColorState<string> | undefined;
 
 const normalizeTheme = (value: ThemeMode): ThemeMode => (value === "dark" ? "dark" : "light");
 
@@ -39,7 +39,7 @@ const createColorStorage = <T>(
     normalize: (value: T) => T,
     apply: (value: T) => void,
 ): ColorState<T> => {
-    const state = useStorage(key, initialValue);
+    const state = storageState(key, initialValue);
     const storedValue = state.value;
     const normalizedStoredValue = normalize(storedValue);
     if (!Object.is(storedValue, normalizedStoredValue)) {
@@ -78,26 +78,26 @@ const createColorStorage = <T>(
     };
 };
 
-export const useTheme = (): ColorState<ThemeMode> => {
-    if (themeState) return themeState;
+export const themeState = (): ColorState<ThemeMode> => {
+    if (currentThemeState) return currentThemeState;
     const state = createColorStorage(THEME_KEY, defaultTheme, normalizeTheme, applyTheme);
-    themeState = state;
+    currentThemeState = state;
     return state;
 };
 
-export const useAccent = (): ColorState<string> => {
-    if (accentState) return accentState;
+export const accentState = (): ColorState<string> => {
+    if (currentAccentState) return currentAccentState;
     const state = createColorStorage(ACCENT_KEY, defaultAccent, (value) => value, applyAccent);
-    accentState = state;
+    currentAccentState = state;
     return state;
 };
 
 export const toggleTheme = (): void => {
-    const theme = useTheme();
+    const theme = themeState();
     theme.set(theme.value === "dark" ? "light" : "dark");
 };
 
 export const __resetColorStateForTest = (): void => {
-    themeState = undefined;
-    accentState = undefined;
+    currentThemeState = undefined;
+    currentAccentState = undefined;
 };

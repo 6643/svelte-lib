@@ -32,7 +32,7 @@ const removeStoredValue = (storage: StorageLike, key: string): void => {
     }
 };
 
-export const useStorage = <T>(key: string, initialValue: T, storage: StorageLike = globalThis.localStorage): StorageState<T> => {
+export const storageState = <T>(key: string, initialValue: T, storage: StorageLike = globalThis.localStorage): StorageState<T> => {
     const state = $state({
         value: readStoredValue(storage, key, initialValue),
     });

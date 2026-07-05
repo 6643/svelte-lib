@@ -1,4 +1,4 @@
-export const useWakeLock = () => {
+export const wakeLockState = () => {
     const isSupportedWakeLock = $state({ value: typeof navigator !== "undefined" && "wakeLock" in navigator });
     const isWakeLockActive = $state({ value: false });
     let wakeLock: WakeLockSentinel | null = null;
