@@ -1,10 +1,8 @@
-import { get, writable } from "svelte/store";
-
-const isFullscreen = writable(false);
+const isFullscreen = $state({ value: false });
 let fullscreenListenerBound = false;
 
 const syncFullscreenState = () => {
-    isFullscreen.set(typeof document !== "undefined" ? !!document.fullscreenElement : false);
+    isFullscreen.value = typeof document !== "undefined" ? !!document.fullscreenElement : false;
 };
 
 const ensureFullscreenRuntime = () => {
@@ -23,7 +21,7 @@ export const useFullScreen = () => {
     const toggleFullScreen = async () => {
         if (typeof document === "undefined") return;
 
-        if (!get(isFullscreen)) {
+        if (!isFullscreen.value) {
             const requestFullscreen = document.documentElement.requestFullscreen?.bind(document.documentElement);
             if (!requestFullscreen) return;
 

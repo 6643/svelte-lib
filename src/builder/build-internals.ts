@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compile } from "svelte/compiler";
+import { compile, compileModule } from "svelte/compiler";
 import type { BunPlugin } from "bun";
 
 import { err, getErrorMessage, isPathWithinAnyRoot, normalizeModulePath, ok, type Result } from "./utils";
@@ -151,7 +151,7 @@ export const findUnsupportedDynamicImportExpression = (
 export const escapeHtml = (value: string): string =>
     value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
-const SUPPORTED_LOCAL_SOURCE_MODULE_EXTENSIONS = [".svelte", ".ts", ".js", ".mjs"] as const;
+const SUPPORTED_LOCAL_SOURCE_MODULE_EXTENSIONS = [".svelte", ".svelte.ts", ".svelte.js", ".ts", ".js", ".mjs"] as const;
 
 const isTypeScriptDeclarationFile = (path: string): boolean => path.endsWith(".d.ts");
 
@@ -159,7 +159,11 @@ export const formatSupportedLocalSourceModuleExtensions = (): string => SUPPORTE
 
 const JS_EXTENSIONS = [".js", ".mjs"] as const;
 
-export const isSupportedJavaScriptSourceModule = (path: string): boolean => JS_EXTENSIONS.some((ext) => path.endsWith(ext));
+export const isSupportedSvelteRunesSourceModule = (path: string): boolean =>
+    path.endsWith(".svelte.ts") || path.endsWith(".svelte.js");
+
+export const isSupportedJavaScriptSourceModule = (path: string): boolean =>
+    !isSupportedSvelteRunesSourceModule(path) && JS_EXTENSIONS.some((ext) => path.endsWith(ext));
 
 export const isSupportedLocalSourceModule = (path: string): boolean =>
     !isTypeScriptDeclarationFile(path) &&
@@ -168,7 +172,7 @@ export const isSupportedLocalSourceModule = (path: string): boolean =>
 export const isSupportedSvelteSourceModule = (path: string): boolean => path.endsWith(".svelte");
 
 export const isSupportedTypeScriptSourceModule = (path: string): boolean =>
-    path.endsWith(".ts") && !isTypeScriptDeclarationFile(path);
+    !isSupportedSvelteRunesSourceModule(path) && path.endsWith(".ts") && !isTypeScriptDeclarationFile(path);
 
 export type SvelteDiagnosticsKind = "errors" | "warnings";
 
@@ -260,6 +264,11 @@ const resolveRelativeImportPath = async (specifier: string, importerPath: string
 const buildImportScanner = new Bun.Transpiler({ loader: "js" });
 const buildTypeScriptTranspiler = new Bun.Transpiler({ loader: "ts" });
 
+const prepareSvelteRunesSource = (path: string, source: string): string => {
+    if (!path.endsWith(".svelte.ts")) return source;
+    return buildTypeScriptTranspiler.transformSync(source);
+};
+
 const loadImportValidationSource = async (path: string): Promise<Result<string>> => {
     const file = Bun.file(path);
     const exists = await file.exists();
@@ -281,6 +290,13 @@ const loadImportValidationSource = async (path: string): Promise<Result<string>>
             filename: path,
             generate: "client",
             modernAst: true,
+        });
+        return ok(compiled.js.code);
+    }
+
+    if (isSupportedSvelteRunesSourceModule(path)) {
+        const compiled = compileModule(prepareSvelteRunesSource(path, source.value), {
+            filename: path,
         });
         return ok(compiled.js.code);
     }
@@ -494,6 +510,13 @@ export const createSveltePlugin = (
     name: "svelte-prod-plugin",
     target: "browser",
     setup: (builder) => {
+        builder.onLoad({ filter: /\.svelte\.(?:ts|js)$/ }, async ({ path }) => {
+            const compiled = compileModule(prepareSvelteRunesSource(path, await Bun.file(path).text()), {
+                filename: path,
+            });
+            return { contents: compiled.js.code, loader: "js" };
+        });
+
         builder.onLoad({ filter: /\.svelte$/ }, async ({ path }) => {
             const compiled = await compileSvelteModule(path);
             if (!compiled.ok) {

@@ -1,7 +1,8 @@
-import { writable, type Updater, type Writable } from "svelte/store";
-
 export type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-export type StorageWritable<T> = Writable<T> & {
+export type StorageState<T> = {
+    value: T;
+    set: (value: T) => void;
+    update: (updater: (value: T) => T) => void;
     remove: () => void;
 };
 
@@ -31,30 +32,32 @@ const removeStoredValue = (storage: StorageLike, key: string): void => {
     }
 };
 
-export const useStorage = <T>(key: string, initialValue: T, storage: StorageLike = globalThis.localStorage): StorageWritable<T> => {
-    const value = readStoredValue(storage, key, initialValue);
-    const store = writable(value);
+export const useStorage = <T>(key: string, initialValue: T, storage: StorageLike = globalThis.localStorage): StorageState<T> => {
+    const state = $state({
+        value: readStoredValue(storage, key, initialValue),
+    });
 
     const set = (nextValue: T) => {
-        store.set(nextValue);
+        state.value = nextValue;
         writeStoredValue(storage, key, nextValue);
     };
 
-    const update = (updater: Updater<T>) => {
-        store.update((currentValue) => {
-            const nextValue = updater(currentValue);
-            writeStoredValue(storage, key, nextValue);
-            return nextValue;
-        });
+    const update = (updater: (value: T) => T) => {
+        set(updater(state.value));
     };
 
     const remove = () => {
         removeStoredValue(storage, key);
-        store.set(initialValue);
+        state.value = initialValue;
     };
 
     return {
-        subscribe: store.subscribe,
+        get value() {
+            return state.value;
+        },
+        set value(nextValue: T) {
+            set(nextValue);
+        },
         set,
         update,
         remove,

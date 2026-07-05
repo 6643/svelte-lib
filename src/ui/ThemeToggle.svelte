@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { toggleTheme, useTheme, type ThemeMode } from "../util/color.ts";
+    import { toggleTheme, useTheme, type ThemeMode } from "../util/color.svelte.ts";
     import { icon_dark_mode, icon_light_mode } from "./svgicons.ts";
     import SvgIcon from "./SvgIcon.svelte";
 
@@ -7,8 +7,8 @@
     const iconFor = (mode: ThemeMode) => (mode === "dark" ? icon_light_mode : icon_dark_mode);
 </script>
 
-<button type="button" aria-label={$theme === "dark" ? "切换浅色模式" : "切换深色模式"} onclick={toggleTheme}>
-    <SvgIcon svgPaths={iconFor($theme)} />
+<button type="button" aria-label={theme.value === "dark" ? "切换浅色模式" : "切换深色模式"} onclick={toggleTheme}>
+    <SvgIcon svgPaths={iconFor(theme.value)} />
 </button>
 
 <style>

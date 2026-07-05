@@ -64,3 +64,51 @@ test("dev server rejects appComponent files directly under the project root", as
     }
     expect(result.error.includes("inside src/ or another top-level source directory")).toBe(true);
 });
+
+test("dev server compiles local .svelte.ts rune modules", async () => {
+    const rootDir = createTempRoot("dev-rune-module");
+    tempDirs.push(rootDir);
+
+    await mkdir(join(rootDir, "src"), { recursive: true });
+    await writeFile(
+        join(rootDir, "builder.ts"),
+        'export default { appComponent: "src/App.svelte", port: 0 };\n',
+        "utf8",
+    );
+    await writeFile(
+        join(rootDir, "src", "App.svelte"),
+        `<script lang="ts">
+            import { counter } from "./state.svelte.ts";
+        </script>
+
+        <p>{counter.value}</p>
+        `,
+        "utf8",
+    );
+    await writeFile(
+        join(rootDir, "src", "state.svelte.ts"),
+        [
+            "export type CounterState = { value: number };",
+            "const initial: CounterState = { value: 1 };",
+            "export const counter = $state(initial);",
+            "",
+        ].join("\n"),
+        "utf8",
+    );
+
+    const result = await devModule.serve({ cwd: rootDir });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+        throw new Error(result.error);
+    }
+
+    try {
+        const response = await fetch(`http://localhost:${result.value.port}/src/state.svelte.ts`);
+        const source = await response.text();
+
+        expect(response.status).toBe(200);
+        expect(source).not.toMatch(/\$state\s*\(/);
+    } finally {
+        await result.value.stop();
+    }
+});

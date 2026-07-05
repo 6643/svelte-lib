@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { build } from "../build";
@@ -162,4 +162,47 @@ test("buildSvelte rejects outDir paths whose physical parent escapes the project
     }
     expect(result.error.includes("outDir")).toBe(true);
     expect(existsSync(join(externalDir, "dist", "index.html"))).toBe(false);
+});
+
+test("buildSvelte compiles local .svelte.ts rune modules", async () => {
+    const rootDir = createTempRoot("build-rune-module");
+    tempDirs.push(rootDir);
+
+    await mkdir(join(rootDir, "src"), { recursive: true });
+    await writeFile(
+        join(rootDir, "src", "state.svelte.ts"),
+        [
+            "export type CounterState = { value: number };",
+            "const initial: CounterState = { value: 1 };",
+            "export const counter = $state(initial);",
+            "",
+        ].join("\n"),
+        "utf8",
+    );
+    await writeFile(
+        join(rootDir, "src", "App.svelte"),
+        `<script lang="ts">
+            import { counter } from "./state.svelte.ts";
+        </script>
+
+        <p>{counter.value}</p>
+        `,
+        "utf8",
+    );
+
+    const result = await build({
+        appComponent: "src/App.svelte",
+        outDir: "dist",
+        rootDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+        throw new Error(result.error);
+    }
+
+    const emittedJavaScript = await Promise.all(
+        [result.value.jsFile, ...(result.value.jsChunkFiles ?? [])].map((file) => readFile(join(result.value.outDir, file), "utf8")),
+    );
+    expect(emittedJavaScript.join("\n")).not.toMatch(/\$state\s*\(/);
 });

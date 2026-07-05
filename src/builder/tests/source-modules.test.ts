@@ -3,6 +3,7 @@ import {
   formatSupportedLocalSourceModuleExtensions,
   isSupportedJavaScriptSourceModule,
   isSupportedLocalSourceModule,
+  isSupportedSvelteRunesSourceModule,
   isSupportedSvelteSourceModule,
   isSupportedTypeScriptSourceModule,
 } from "../build-internals";
@@ -17,6 +18,19 @@ describe("source-modules", () => {
     it("should return false for non-svelte files", () => {
       expect(isSupportedSvelteSourceModule("App.ts")).toBe(false);
       expect(isSupportedSvelteSourceModule("App.js")).toBe(false);
+    });
+  });
+
+  describe("isSupportedSvelteRunesSourceModule", () => {
+    it("should return true for .svelte.ts and .svelte.js files", () => {
+      expect(isSupportedSvelteRunesSourceModule("state.svelte.ts")).toBe(true);
+      expect(isSupportedSvelteRunesSourceModule("state.svelte.js")).toBe(true);
+    });
+
+    it("should return false for components and ordinary modules", () => {
+      expect(isSupportedSvelteRunesSourceModule("App.svelte")).toBe(false);
+      expect(isSupportedSvelteRunesSourceModule("state.ts")).toBe(false);
+      expect(isSupportedSvelteRunesSourceModule("state.js")).toBe(false);
     });
   });
 
@@ -53,6 +67,8 @@ describe("source-modules", () => {
   describe("isSupportedLocalSourceModule", () => {
     it("should return true for supported extensions", () => {
       expect(isSupportedLocalSourceModule("App.svelte")).toBe(true);
+      expect(isSupportedLocalSourceModule("state.svelte.ts")).toBe(true);
+      expect(isSupportedLocalSourceModule("state.svelte.js")).toBe(true);
       expect(isSupportedLocalSourceModule("App.ts")).toBe(true);
       expect(isSupportedLocalSourceModule("App.js")).toBe(true);
       expect(isSupportedLocalSourceModule("App.mjs")).toBe(true);
@@ -72,6 +88,8 @@ describe("source-modules", () => {
     it("should return comma-separated extensions", () => {
       const result = formatSupportedLocalSourceModuleExtensions();
       expect(result).toContain(".svelte");
+      expect(result).toContain(".svelte.ts");
+      expect(result).toContain(".svelte.js");
       expect(result).toContain(".ts");
       expect(result).toContain(".js");
       expect(result).toContain(".mjs");

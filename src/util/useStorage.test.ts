@@ -1,7 +1,21 @@
 import { expect, test } from "bun:test";
-import { get } from "svelte/store";
 
-import { useStorage } from "./useStorage.ts";
+import { loadRuneModule } from "./load-rune-module.test-helper.ts";
+
+type StorageState<T> = {
+    value: T;
+    set: (value: T) => void;
+    update: (updater: (value: T) => T) => void;
+    remove: () => void;
+};
+type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+const loadUseStorage = async () => {
+    const module = await loadRuneModule<{
+        useStorage: <T>(key: string, initialValue: T, storage?: StorageLike) => StorageState<T>;
+    }>("./useStorage.svelte.ts", import.meta.url);
+    return module.useStorage;
+};
 
 const createStorage = (seed: Record<string, string> = {}) => {
     const values = new Map(Object.entries(seed));
@@ -23,14 +37,16 @@ const createStorage = (seed: Record<string, string> = {}) => {
     };
 };
 
-test("useStorage reads the stored value", () => {
+test("useStorage reads the stored value", async () => {
+    const useStorage = await loadUseStorage();
     const storage = createStorage({ count: JSON.stringify(3) });
-    const store = useStorage("count", 0, storage);
+    const state = useStorage("count", 0, storage);
 
-    expect(get(store)).toBe(3);
+    expect(state.value).toBe(3);
 });
 
-test("useStorage does not write during initialization", () => {
+test("useStorage does not write during initialization", async () => {
+    const useStorage = await loadUseStorage();
     const storage = createStorage({ count: JSON.stringify(3) });
 
     useStorage("count", 0, storage);
@@ -38,43 +54,49 @@ test("useStorage does not write during initialization", () => {
     expect(storage.writes).toEqual([]);
 });
 
-test("useStorage writes updates back to storage", () => {
+test("useStorage writes updates back to storage", async () => {
+    const useStorage = await loadUseStorage();
     const storage = createStorage();
-    const store = useStorage("count", 0, storage);
+    const state = useStorage("count", 0, storage);
 
-    store.set(4);
+    state.set(4);
 
+    expect(state.value).toBe(4);
     expect(storage.getItem("count")).toBe("4");
 });
 
-test("useStorage updates from the current store value", () => {
+test("useStorage updates from the current state value", async () => {
+    const useStorage = await loadUseStorage();
     const storage = createStorage({ count: JSON.stringify(3) });
-    const store = useStorage("count", 0, storage);
+    const state = useStorage("count", 0, storage);
 
-    store.update((value) => value + 1);
+    state.update((value) => value + 1);
 
-    expect(get(store)).toBe(4);
+    expect(state.value).toBe(4);
     expect(storage.getItem("count")).toBe("4");
 });
 
-test("useStorage exposes explicit removal", () => {
+test("useStorage exposes explicit removal", async () => {
+    const useStorage = await loadUseStorage();
     const storage = createStorage({ count: JSON.stringify(3) });
-    const store = useStorage("count", 0, storage);
+    const state = useStorage("count", 0, storage);
 
-    store.remove();
+    state.remove();
 
     expect(storage.removes).toEqual(["count"]);
-    expect(get(store)).toBe(0);
+    expect(state.value).toBe(0);
 });
 
-test("useStorage falls back to the initial value when stored JSON is invalid", () => {
+test("useStorage falls back to the initial value when stored JSON is invalid", async () => {
+    const useStorage = await loadUseStorage();
     const storage = createStorage({ count: "not-json" });
-    const store = useStorage("count", 0, storage);
+    const state = useStorage("count", 0, storage);
 
-    expect(get(store)).toBe(0);
+    expect(state.value).toBe(0);
 });
 
-test("useStorage works without storage methods throwing", () => {
+test("useStorage works without storage methods throwing", async () => {
+    const useStorage = await loadUseStorage();
     const storage = {
         getItem: () => {
             throw new Error("unavailable");
@@ -87,9 +109,9 @@ test("useStorage works without storage methods throwing", () => {
         },
     };
 
-    const store = useStorage("count", 0, storage);
+    const state = useStorage("count", 0, storage);
 
-    expect(get(store)).toBe(0);
-    expect(() => store.set(1)).not.toThrow();
-    expect(() => store.remove()).not.toThrow();
+    expect(state.value).toBe(0);
+    expect(() => state.set(1)).not.toThrow();
+    expect(() => state.remove()).not.toThrow();
 });

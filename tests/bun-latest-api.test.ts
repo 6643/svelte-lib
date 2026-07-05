@@ -278,3 +278,28 @@ test("builder source config uses ts and local counters use arrow functions", () 
     expect(existsSync(resolve(repoRoot, "src/builder/src/lib/Counter.svelte"))).toBe(false);
     expect(existsSync(resolve(repoRoot, "src/builder/src/lib/Counter2.svelte"))).toBe(false);
 });
+
+test("util shared state modules use rune state instead of svelte stores", () => {
+    const utilFiles = [
+        "src/util/color.svelte.ts",
+        "src/util/useFullScreen.svelte.ts",
+        "src/util/useStorage.svelte.ts",
+        "src/util/useWakeLock.svelte.ts",
+    ];
+
+    for (const file of utilFiles) {
+        expect(existsSync(resolve(repoRoot, file))).toBe(true);
+        const source = readRepoFile(file);
+        expect(source.includes("svelte/store")).toBe(false);
+    }
+
+    expect(readRepoFile("src/util/useStorage.svelte.ts").includes("$state")).toBe(true);
+    expect(readRepoFile("src/util/useFullScreen.svelte.ts").includes("$state")).toBe(true);
+    expect(readRepoFile("src/util/useWakeLock.svelte.ts").includes("$state")).toBe(true);
+    expect(readRepoFile("src/util/color.svelte.ts").includes("./useStorage.svelte.ts")).toBe(true);
+
+    expect(existsSync(resolve(repoRoot, "src/util/color.ts"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/util/useFullScreen.ts"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/util/useStorage.ts"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/util/useWakeLock.ts"))).toBe(false);
+});

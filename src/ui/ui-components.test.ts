@@ -3,13 +3,25 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
-import { compile } from "svelte/compiler";
+import { compile, compileModule } from "svelte/compiler";
 import { flushSync, mount, unmount, type Component } from "svelte";
 
 const cacheRoot = resolve(".bun-svelte-cache", "ui");
+const tsTranspiler = new Bun.Transpiler({ loader: "ts" });
+
+const isRuneModule = (path: string): boolean => path.endsWith(".svelte.ts") || path.endsWith(".svelte.js");
+
+const prepareRuneSource = (path: string, source: string): string => {
+    if (!path.endsWith(".svelte.ts")) return source;
+    return tsTranspiler.transformSync(source);
+};
 
 const resolveImportSpecifier = async (sourceFile: string, specifier: string): Promise<string> => {
     const resolved = resolve(dirname(sourceFile), specifier);
+    if (isRuneModule(resolved)) {
+        return pathToFileURL(await compileRuneModuleToFile(resolved)).href;
+    }
+
     if (resolved.endsWith(".svelte")) {
         return pathToFileURL(await compileToFile(resolved)).href;
     }
@@ -38,6 +50,19 @@ const compileToFile = async (sourceFile: string): Promise<string> => {
         css: "injected",
         filename: absoluteSource,
         generate: "client",
+    });
+
+    mkdirSync(dirname(outputFile), { recursive: true });
+    writeFileSync(outputFile, await rewriteRelativeImports(compiled.js.code, absoluteSource), "utf8");
+    return outputFile;
+};
+
+const compileRuneModuleToFile = async (sourceFile: string): Promise<string> => {
+    const absoluteSource = resolve(sourceFile);
+    const outputFile = join(cacheRoot, `${absoluteSource.replace(/[\\/:]/g, "_").replace(extname(absoluteSource), "")}.mjs`);
+    const source = readFileSync(absoluteSource, "utf8");
+    const compiled = compileModule(prepareRuneSource(absoluteSource, source), {
+        filename: absoluteSource,
     });
 
     mkdirSync(dirname(outputFile), { recursive: true });

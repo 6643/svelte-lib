@@ -1,8 +1,21 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { get } from "svelte/store";
 
-import { __resetColorStateForTest, accentColors, useAccent, useTheme } from "./color.ts";
+import { loadRuneModule } from "./load-rune-module.test-helper.ts";
+
+type ThemeMode = "dark" | "light";
+type ColorState<T> = {
+    value: T;
+    set: (value: T) => void;
+};
+
+const loadColorModule = async () =>
+    loadRuneModule<{
+        __resetColorStateForTest: () => void;
+        accentColors: readonly { name: string; value: string }[];
+        useAccent: () => ColorState<string>;
+        useTheme: () => ColorState<ThemeMode>;
+    }>("./color.svelte.ts", import.meta.url);
 
 const installDom = (theme = "", accent = "") => {
     const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -25,59 +38,63 @@ const installDom = (theme = "", accent = "") => {
     };
 };
 
-test("useTheme reads storage and updates the theme attribute", () => {
+test("useTheme reads storage and updates the theme attribute", async () => {
+    const { __resetColorStateForTest, useTheme } = await loadColorModule();
     const cleanup = installDom(JSON.stringify("dark"));
     __resetColorStateForTest();
 
     const theme = useTheme();
 
-    expect(get(theme)).toBe("dark");
+    expect(theme.value).toBe("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem("theme")).toBe(JSON.stringify("dark"));
 
     cleanup();
 });
 
-test("theme store updates storage and theme attribute", () => {
+test("theme state updates storage and theme attribute", async () => {
+    const { __resetColorStateForTest, useTheme } = await loadColorModule();
     const cleanup = installDom("light");
     __resetColorStateForTest();
 
     const theme = useTheme();
     theme.set("dark");
 
-    expect(get(theme)).toBe("dark");
+    expect(theme.value).toBe("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem("theme")).toBe(JSON.stringify("dark"));
 
     cleanup();
 });
 
-test("useTheme normalizes invalid stored values across store, DOM, and storage", () => {
+test("useTheme normalizes invalid stored values across state, DOM, and storage", async () => {
+    const { __resetColorStateForTest, useTheme } = await loadColorModule();
     const cleanup = installDom(JSON.stringify("blue"));
     __resetColorStateForTest();
 
     const theme = useTheme();
 
-    expect(get(theme)).toBe("light");
+    expect(theme.value).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
     expect(localStorage.getItem("theme")).toBe(JSON.stringify("light"));
 
     cleanup();
 });
 
-test("accent store reads storage and updates the CSS variable", () => {
+test("accent state reads storage and updates the CSS variable", async () => {
+    const { __resetColorStateForTest, accentColors, useAccent } = await loadColorModule();
     const cleanup = installDom("", JSON.stringify("#ff00aa"));
     __resetColorStateForTest();
 
     const accent = useAccent();
 
-    expect(get(accent)).toBe("#ff00aa");
+    expect(accent.value).toBe("#ff00aa");
     expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#ff00aa");
     expect(localStorage.getItem("accent")).toBe(JSON.stringify("#ff00aa"));
 
     accent.set(accentColors[0].value);
 
-    expect(get(accent)).toBe(accentColors[0].value);
+    expect(accent.value).toBe(accentColors[0].value);
     expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe(accentColors[0].value);
     expect(localStorage.getItem("accent")).toBe(JSON.stringify(accentColors[0].value));
 

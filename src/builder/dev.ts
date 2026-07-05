@@ -8,7 +8,7 @@ import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { gzipSync } from "node:zlib";
-import { compile } from "svelte/compiler";
+import { compile, compileModule } from "svelte/compiler";
 import type { ErrorLike, Server } from "bun";
 
 import {
@@ -17,6 +17,7 @@ import {
     escapeHtml,
     isSupportedJavaScriptSourceModule,
     isSupportedLocalSourceModule,
+    isSupportedSvelteRunesSourceModule,
     isSupportedSvelteSourceModule,
     isSupportedTypeScriptSourceModule,
     validateLocalSourceImportGraph,
@@ -132,6 +133,11 @@ const createCssInjection = (modulePath: string, cssCode: string | undefined): st
 
 const tsTranspiler = new Bun.Transpiler({ loader: "ts" });
 
+const prepareSvelteRunesSourceForDev = (modulePath: string, source: string): string => {
+    if (!modulePath.endsWith(".svelte.ts")) return source;
+    return tsTranspiler.transformSync(source);
+};
+
 const compileSvelteForDev = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
     const source = await loadRequiredText(join(rootDir, modulePath));
     if (!source.ok) {
@@ -193,6 +199,36 @@ const transpileTypeScriptForDev = async (
         .catch((error: unknown) => err(`Failed to transpile ${modulePath}: ${getErrorMessage(error)}`));
 };
 
+const compileSvelteRunesForDev = async (
+    rootDir: string,
+    modulePath: string,
+    shouldLog = false,
+): Promise<Result<string>> => {
+    const source = await loadRequiredText(join(rootDir, modulePath));
+    if (!source.ok) {
+        return source;
+    }
+
+    return Promise.resolve()
+        .then(() => {
+            const compiled = compileModule(prepareSvelteRunesSourceForDev(modulePath, source.value), {
+                filename: modulePath,
+            });
+            return rewriteBareImportsForDev(compiled.js.code, join(rootDir, modulePath)).then((rewritten: Result<string>) => {
+                if (!rewritten.ok) {
+                    return rewritten;
+                }
+
+                if (shouldLog) {
+                    logRecompiledAsset(modulePath, rewritten.value);
+                }
+
+                return ok(rewritten.value);
+            });
+        })
+        .catch((error: unknown) => err(`Failed to compile ${modulePath}: ${getErrorMessage(error)}`));
+};
+
 // ---- Module loading ----
 
 const isCompilableDevModule = (filePath: string): boolean => isSupportedLocalSourceModule(filePath);
@@ -208,6 +244,10 @@ const getDevModuleMtime = (rootDir: string, modulePath: string): Result<number> 
 const loadUncachedDevModule = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
     if (isSupportedSvelteSourceModule(modulePath)) {
         return compileSvelteForDev(rootDir, modulePath, shouldLog);
+    }
+
+    if (isSupportedSvelteRunesSourceModule(modulePath)) {
+        return compileSvelteRunesForDev(rootDir, modulePath, shouldLog);
     }
 
     if (isSupportedJavaScriptSourceModule(modulePath)) {
