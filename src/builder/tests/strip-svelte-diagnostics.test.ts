@@ -7,12 +7,11 @@ import { stripSvelteDiagnosticsModule } from "../build-internals";
 
 const tempDirs: string[] = [];
 
+const createTempRoot = (name: string): string =>
+    join(process.cwd(), ".tmp", `svelte-builder-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
 const createTempBuildProject = async (): Promise<string> => {
-    const rootDir = join(
-        process.cwd(),
-        "src/builder/tests",
-        `.tmp-strip-svelte-diagnostics-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    );
+    const rootDir = createTempRoot("strip-svelte-diagnostics");
     tempDirs.push(rootDir);
 
     await mkdir(join(rootDir, "src"), { recursive: true });

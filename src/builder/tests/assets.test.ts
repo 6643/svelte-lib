@@ -87,3 +87,24 @@ test("resolveConfiguredAssetsDirs rejects duplicate final directory names", asyn
         await rm(rootDir, { recursive: true, force: true });
     }
 });
+
+test("resolveConfiguredAssetsDirs rejects assets directories outside the project root", async () => {
+    const rootDir = join("/tmp", `svelte-builder-assets-root-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const externalDir = join("/tmp", `svelte-builder-assets-external-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    await mkdir(rootDir, { recursive: true });
+    await mkdir(externalDir, { recursive: true });
+
+    try {
+        const result = await resolveConfiguredAssetsDirs(rootDir, [externalDir]);
+        expect(result.ok).toBe(false);
+        if (result.ok) {
+            throw new Error("Expected external assetsDirs entries to be rejected");
+        }
+
+        expect(result.error.includes("outside the project root")).toBe(true);
+    } finally {
+        await rm(rootDir, { recursive: true, force: true });
+        await rm(externalDir, { recursive: true, force: true });
+    }
+});

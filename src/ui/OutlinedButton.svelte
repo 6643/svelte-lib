@@ -1,20 +1,19 @@
 <script lang="ts">
-    import SvgIcon from "./SvgIcon.svelte";
+    import type { Snippet } from "svelte";
 
     type ButtonTapHandler = () => void | Promise<void>;
 
     type Props = {
+        children: Snippet;
         borderRadius?: number | string;
         color?: string;
         width?: number | string;
         height?: number | string;
-        icon?: string;
-        text?: string;
         disabled?: boolean;
         tap?: ButtonTapHandler;
     };
 
-    let { borderRadius, color, width, height, icon, text, disabled = false, tap }: Props = $props();
+    let { children, disabled = false, tap, borderRadius, color, width, height }: Props = $props();
     let busy = $state(false);
 
     const handleClick = async () => {
@@ -38,10 +37,7 @@
     style:--width={typeof width === "number" ? `${width}px` : width}
     onclick={handleClick}
 >
-    {#if icon}
-        <SvgIcon svgPaths={icon} size={24} />
-    {/if}
-    <span>{text}</span>
+    {@render children()}
 </button>
 
 <style>

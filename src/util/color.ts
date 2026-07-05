@@ -1,4 +1,6 @@
-import { writable, type Writable } from "svelte/store";
+import { get } from "svelte/store";
+
+import { useStorage, type StorageWritable } from "./useStorage.ts";
 
 export type ThemeMode = "dark" | "light";
 
@@ -14,101 +16,70 @@ export const accentColors = [
 
 const THEME_KEY = "theme";
 const ACCENT_KEY = "accent";
+const defaultTheme: ThemeMode = "light";
+const defaultAccent = accentColors[0].value;
 
-const canUseDocument = () => typeof document !== "undefined";
-const canUseStorage = () => typeof globalThis.localStorage !== "undefined";
-
-const readTheme = (): ThemeMode => {
-    if (!canUseStorage()) return "light";
-
-    try {
-        const value = localStorage.getItem(THEME_KEY);
-        return value === "dark" ? "dark" : "light";
-    } catch {
-        return "light";
-    }
+type ColorStorage<T> = StorageWritable<T> & {
+    stop: () => void;
 };
 
-const readAccent = (): string => {
-    if (!canUseStorage()) return accentColors[0].value;
+let themeStore: ColorStorage<ThemeMode> | undefined;
+let accentStore: ColorStorage<string> | undefined;
 
-    try {
-        return localStorage.getItem(ACCENT_KEY) ?? accentColors[0].value;
-    } catch {
-        return accentColors[0].value;
-    }
+const normalizeTheme = (value: ThemeMode): ThemeMode => (value === "dark" ? "dark" : "light");
+
+const applyTheme = (mode: ThemeMode): void => {
+    document.documentElement.dataset.theme = mode;
+    document.documentElement.style.setProperty("--theme-mode", mode);
 };
 
-const writeTheme = (mode: ThemeMode): void => {
-    if (canUseDocument()) {
-        document.documentElement.dataset.theme = mode;
-        document.documentElement.style.setProperty("--theme-mode", mode);
-    }
-
-    if (!canUseStorage()) return;
-    try {
-        localStorage.setItem(THEME_KEY, mode);
-    } catch {
-        // ignore storage failures
-    }
+const applyAccent = (value: string): void => {
+    document.documentElement.style.setProperty("--accent-color", value);
 };
 
-const writeAccent = (value: string): void => {
-    if (canUseDocument()) {
-        document.documentElement.style.setProperty("--accent-color", value);
+const createColorStorage = <T>(
+    key: string,
+    initialValue: T,
+    normalize: (value: T) => T,
+    apply: (value: T) => void,
+): ColorStorage<T> => {
+    const store = useStorage(key, initialValue);
+    const storedValue = get(store);
+    const normalizedStoredValue = normalize(storedValue);
+    if (!Object.is(storedValue, normalizedStoredValue)) {
+        store.set(normalizedStoredValue);
     }
+    const stop = store.subscribe((value) => apply(normalize(value)));
 
-    if (!canUseStorage()) return;
-    try {
-        localStorage.setItem(ACCENT_KEY, value);
-    } catch {
-        // ignore storage failures
-    }
+    return {
+        subscribe: store.subscribe,
+        set: (value) => store.set(normalize(value)),
+        update: (updater) => store.update((value) => normalize(updater(normalize(value)))),
+        remove: store.remove,
+        stop,
+    };
 };
 
-export const themeStore = writable<ThemeMode>("light");
-export const accentStore = writable<string>(accentColors[0].value);
-
-let themeInitialized = false;
-let accentInitialized = false;
-let themeSubscriptionBound = false;
-let accentSubscriptionBound = false;
-
-export const initTheme = (): void => {
-    if (themeInitialized) return;
-    themeInitialized = true;
-    themeStore.set(readTheme());
-    if (!themeSubscriptionBound) {
-        themeStore.subscribe((mode) => writeTheme(mode));
-        themeSubscriptionBound = true;
-    }
+export const useTheme = (): ColorStorage<ThemeMode> => {
+    if (themeStore) return themeStore;
+    themeStore = createColorStorage(THEME_KEY, defaultTheme, normalizeTheme, applyTheme);
+    return themeStore;
 };
 
-export const initAccent = (): void => {
-    if (accentInitialized) return;
-    accentInitialized = true;
-    accentStore.set(readAccent());
-    if (!accentSubscriptionBound) {
-        accentStore.subscribe((value) => writeAccent(value));
-        accentSubscriptionBound = true;
-    }
+export const useAccent = (): ColorStorage<string> => {
+    if (accentStore) return accentStore;
+    accentStore = createColorStorage(ACCENT_KEY, defaultAccent, (value) => value, applyAccent);
+    return accentStore;
 };
 
-export const useTheme = (mode: ThemeMode): void => {
-    initTheme();
-    themeStore.set(mode);
-};
-
-export const useAccent = (value: string): void => {
-    initAccent();
-    accentStore.set(value);
+export const toggleTheme = (): void => {
+    const theme = useTheme();
+    theme.set(get(theme) === "dark" ? "light" : "dark");
 };
 
 export const __resetColorStateForTest = (): void => {
-    themeInitialized = false;
-    accentInitialized = false;
-    themeSubscriptionBound = false;
-    accentSubscriptionBound = false;
-    themeStore.set("light");
-    accentStore.set(accentColors[0].value);
+    themeStore?.stop();
+    accentStore?.stop();
+    themeStore = undefined;
+    accentStore = undefined;
 };

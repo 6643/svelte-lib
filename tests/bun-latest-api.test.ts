@@ -102,6 +102,13 @@ test("builder docs describe assetsDirs as the only static assets config", () => 
     expect(migration.includes("已移除")).toBe(true);
 });
 
+test("builder README does not promise unimplemented dist lock or staging semantics", () => {
+    const readme = readRepoFile("src/builder/README.md");
+
+    expect(readme.includes("dist.lock")).toBe(false);
+    expect(readme.includes("只有在新产物准备完成后才会切换到")).toBe(false);
+});
+
 test("tests use Svelte's public client API instead of internal source paths", () => {
     const files = [
         "src/route/tests/route-component.test.ts",

@@ -1,6 +1,9 @@
-import { writable, type Writable } from "svelte/store";
+import { writable, type Updater, type Writable } from "svelte/store";
 
-type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+export type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+export type StorageWritable<T> = Writable<T> & {
+    remove: () => void;
+};
 
 const readStoredValue = <T>(storage: StorageLike, key: string, fallback: T): T => {
     try {
@@ -16,7 +19,7 @@ const writeStoredValue = <T>(storage: StorageLike, key: string, value: T): void 
     try {
         storage.setItem(key, JSON.stringify(value));
     } catch {
-        // fallback to memory only
+        // keep the in-memory store value even when browser storage is unavailable
     }
 };
 
@@ -24,37 +27,36 @@ const removeStoredValue = (storage: StorageLike, key: string): void => {
     try {
         storage.removeItem(key);
     } catch {
-        // fallback to memory only
+        // keep the in-memory store value even when browser storage is unavailable
     }
 };
 
-const createMemoryStorage = (): StorageLike => {
-    const values = new Map<string, string>();
-
-    return {
-        getItem: (key) => values.get(key) ?? null,
-        setItem: (key, value) => {
-            values.set(key, value);
-        },
-        removeItem: (key) => {
-            values.delete(key);
-        },
-    };
-};
-
-export const useStorage = <T>(key: string, initialValue: T, storage: StorageLike = globalThis.localStorage): Writable<T> => {
-    const resolvedStorage = storage ?? createMemoryStorage();
-    const value = readStoredValue(resolvedStorage, key, initialValue);
+export const useStorage = <T>(key: string, initialValue: T, storage: StorageLike = globalThis.localStorage): StorageWritable<T> => {
+    const value = readStoredValue(storage, key, initialValue);
     const store = writable(value);
 
-    store.subscribe((nextValue) => {
-        if (nextValue === undefined) {
-            removeStoredValue(resolvedStorage, key);
-            return;
-        }
+    const set = (nextValue: T) => {
+        store.set(nextValue);
+        writeStoredValue(storage, key, nextValue);
+    };
 
-        writeStoredValue(resolvedStorage, key, nextValue);
-    });
+    const update = (updater: Updater<T>) => {
+        store.update((currentValue) => {
+            const nextValue = updater(currentValue);
+            writeStoredValue(storage, key, nextValue);
+            return nextValue;
+        });
+    };
 
-    return store;
+    const remove = () => {
+        removeStoredValue(storage, key);
+        store.set(initialValue);
+    };
+
+    return {
+        subscribe: store.subscribe,
+        set,
+        update,
+        remove,
+    };
 };

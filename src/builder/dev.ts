@@ -26,6 +26,8 @@ import {
 import { ok, err, getErrorMessage, getErrorCode, normalizeModulePath, resolveConfiguredPath, type Result } from "./utils";
 import {
     loadSvelteConfig,
+    resolveAppSourceRoot,
+    validateResolvedAppComponentPath,
     type BuildSvelteOptions,
 } from "./config";
 
@@ -861,21 +863,7 @@ const deriveDevRuntimeState = async (
     const mountId = config.mountId ?? "app";
     const appTitle = config.appTitle ?? "Svelte Builder";
     const appComponentPath = resolveConfiguredPath(rootDir, config.appComponent, "src/App.svelte");
-    const sourceRoot = (() => {
-        const appComponentRelativeToRoot = relative(rootDir, appComponentPath);
-        if (appComponentRelativeToRoot.startsWith("..") || isAbsolute(appComponentRelativeToRoot)) {
-            return err(`Invalid appComponent in builder.ts: expected a path inside the project root.`);
-        }
-        const segments = appComponentRelativeToRoot.split(/[\\/]/).filter((segment) => segment.length > 0);
-        const [topLevelDir] = segments;
-        if (topLevelDir === undefined) {
-            return err(`Invalid appComponent in builder.ts: expected a component path inside src/ or another top-level source directory.`);
-        }
-        if (segments.length === 1) {
-            return ok(rootDir);
-        }
-        return ok(topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir));
-    })();
+    const sourceRoot = resolveAppSourceRoot(rootDir, appComponentPath, "builder.ts");
     if (!sourceRoot.ok) {
         return sourceRoot;
     }
@@ -885,18 +873,7 @@ const deriveDevRuntimeState = async (
         return err(`Missing SPA app component: ${appComponentPath}`);
     }
 
-    const validatedAppComponentPath = (() => {
-        try {
-            const physicalPath = realpathSync(appComponentPath);
-            if (!isPathInsideRoot(rootDir, physicalPath) || !isPathInsideRoot(sourceRoot.value, physicalPath)) {
-                return err(`Invalid appComponent in builder.ts: symbolic links must resolve inside the app source tree (${sourceRoot.value}).`);
-            }
-
-            return ok(appComponentPath);
-        } catch {
-            return err(`Invalid appComponent in builder.ts: file does not exist: ${appComponentPath}.`);
-        }
-    })();
+    const validatedAppComponentPath = validateResolvedAppComponentPath(rootDir, sourceRoot.value, appComponentPath, "builder.ts");
     if (!validatedAppComponentPath.ok) {
         return validatedAppComponentPath;
     }

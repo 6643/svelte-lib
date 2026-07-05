@@ -1,22 +1,21 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { build } from "../build";
 
 const tempDirs: string[] = [];
 
+const createTempRoot = (name: string): string =>
+    join(process.cwd(), ".tmp", `svelte-builder-${name}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
 afterEach(async () => {
     await Promise.all(tempDirs.splice(0).map((rootDir) => rm(rootDir, { recursive: true, force: true })));
 });
 
 test("buildSvelte reports emitted chunks for lazy route components", async () => {
-    const rootDir = join(
-        process.cwd(),
-        "src/builder/tests",
-        `.tmp-build-lazy-chunks-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    );
+    const rootDir = createTempRoot("build-lazy-chunks");
     tempDirs.push(rootDir);
 
     await mkdir(join(rootDir, "src", "routes"), { recursive: true });
@@ -57,11 +56,7 @@ test("buildSvelte reports emitted chunks for lazy route components", async () =>
 });
 
 test("buildSvelte copies multiple static asset directories by directory name", async () => {
-    const rootDir = join(
-        process.cwd(),
-        "src/builder/tests",
-        `.tmp-build-assets-dirs-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    );
+    const rootDir = createTempRoot("build-assets-dirs");
     tempDirs.push(rootDir);
 
     await mkdir(join(rootDir, "src"), { recursive: true });
@@ -85,4 +80,86 @@ test("buildSvelte copies multiple static asset directories by directory name", a
 
     expect(existsSync(join(result.value.outDir, "assets", "logo.svg"))).toBe(true);
     expect(existsSync(join(result.value.outDir, "public", "robots.txt"))).toBe(true);
+});
+
+test("buildSvelte removes stale output files before writing the next build", async () => {
+    const rootDir = createTempRoot("build-clean-output");
+    tempDirs.push(rootDir);
+
+    await mkdir(join(rootDir, "src"), { recursive: true });
+    await mkdir(join(rootDir, "assets"), { recursive: true });
+    await writeFile(join(rootDir, "src", "App.svelte"), "<p>app</p>\n", "utf8");
+    await writeFile(join(rootDir, "assets", "stale.txt"), "stale\n", "utf8");
+
+    const first = await build({
+        appComponent: "src/App.svelte",
+        assetsDirs: ["assets"],
+        outDir: "dist",
+        rootDir,
+    });
+
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+        throw new Error(first.error);
+    }
+    expect(existsSync(join(first.value.outDir, "assets", "stale.txt"))).toBe(true);
+
+    await rm(join(rootDir, "assets", "stale.txt"));
+
+    const second = await build({
+        appComponent: "src/App.svelte",
+        assetsDirs: ["assets"],
+        outDir: "dist",
+        rootDir,
+    });
+
+    expect(second.ok).toBe(true);
+    if (!second.ok) {
+        throw new Error(second.error);
+    }
+    expect(existsSync(join(second.value.outDir, "assets", "stale.txt"))).toBe(false);
+});
+
+test("buildSvelte rejects appComponent files directly under the project root", async () => {
+    const rootDir = createTempRoot("build-root-app");
+    tempDirs.push(rootDir);
+
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(join(rootDir, "App.svelte"), "<p>root app</p>\n", "utf8");
+
+    const result = await build({
+        appComponent: "App.svelte",
+        outDir: "dist",
+        rootDir,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+        throw new Error("Expected root-level appComponent to be rejected");
+    }
+    expect(result.error.includes("inside src/ or another top-level source directory")).toBe(true);
+});
+
+test("buildSvelte rejects outDir paths whose physical parent escapes the project root", async () => {
+    const rootDir = createTempRoot("build-symlink-outdir");
+    const externalDir = createTempRoot("build-symlink-outside");
+    tempDirs.push(rootDir, externalDir);
+
+    await mkdir(join(rootDir, "src"), { recursive: true });
+    await mkdir(externalDir, { recursive: true });
+    await writeFile(join(rootDir, "src", "App.svelte"), "<p>app</p>\n", "utf8");
+    await symlink(externalDir, join(rootDir, "linked-out"), "dir");
+
+    const result = await build({
+        appComponent: "src/App.svelte",
+        outDir: "linked-out/dist",
+        rootDir,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+        throw new Error("Expected symlinked outDir parent to be rejected");
+    }
+    expect(result.error.includes("outDir")).toBe(true);
+    expect(existsSync(join(externalDir, "dist", "index.html"))).toBe(false);
 });

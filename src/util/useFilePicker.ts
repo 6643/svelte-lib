@@ -66,9 +66,10 @@ const openWithNativePicker = async (options: OpenFilePickerOptions): Promise<Fil
     const pickerHost = globalThis as {
         showOpenFilePicker?: (options?: OpenFilePickerOptions) => Promise<readonly FileSystemFileHandle[]>;
     };
-    const picked = await tryAsyncResult(() =>
-        pickerHost.showOpenFilePicker?.(options).then(async ([fileHandle]) => (fileHandle ? toFiles([fileHandle]) : null)),
-    );
+    const picked = await tryAsyncResult(async () => {
+        const fileHandles = await pickerHost.showOpenFilePicker?.(options);
+        return fileHandles ? toFiles(fileHandles) : null;
+    });
 
     return picked.ok ? (picked.value ?? null) : null;
 };

@@ -74,9 +74,18 @@ const resolveConfiguredAssetsDir = async (
         return err(`Configured assetsDirs entry is not a directory: ${configuredAssetsDir} (resolved to ${resolvedDir})`);
     }
 
+    const physicalRoot = await resolvePhysicalPath(rootDir);
+    if (!physicalRoot.ok) {
+        return physicalRoot;
+    }
+
     const physicalDir = await resolvePhysicalPath(resolvedDir);
     if (!physicalDir.ok) {
         return physicalDir;
+    }
+
+    if (!isPathWithinRoot(physicalRoot.value, physicalDir.value)) {
+        return err(`Configured assetsDirs entry is outside the project root: ${configuredAssetsDir}`);
     }
 
     return ok(physicalDir.value);

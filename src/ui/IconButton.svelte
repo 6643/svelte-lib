@@ -4,12 +4,12 @@
 
     type Props = {
         color?: string;
-        iconSvgPaths: string;
+        svgPaths: string;
         tap?: ButtonTapHandler;
         disabled?: boolean;
     };
 
-    let { color, iconSvgPaths: icon, tap, disabled = false }: Props = $props();
+    let { color, svgPaths, tap, disabled = false }: Props = $props();
     let busy = $state(false);
 
     const handleClick = async () => {
@@ -25,7 +25,7 @@
 </script>
 
 <button disabled={disabled || busy} type="button" style:--color={color} onclick={handleClick}>
-    <SvgIcon svgPaths={icon} size={24} />
+    <SvgIcon svgPaths={svgPaths} size={24} />
 </button>
 
 <style>

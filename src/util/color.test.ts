@@ -1,17 +1,8 @@
 import { expect, test } from "bun:test";
-import { get } from "svelte/store";
 import { JSDOM } from "jsdom";
+import { get } from "svelte/store";
 
-import {
-    __resetColorStateForTest,
-    accentColors,
-    accentStore,
-    initAccent,
-    initTheme,
-    themeStore,
-    useAccent,
-    useTheme,
-} from "./color.ts";
+import { __resetColorStateForTest, accentColors, useAccent, useTheme } from "./color.ts";
 
 const installDom = (theme = "", accent = "") => {
     const dom = new JSDOM("<!doctype html><html><body></body></html>", {
@@ -34,45 +25,61 @@ const installDom = (theme = "", accent = "") => {
     };
 };
 
-test("initTheme reads storage and updates the theme attribute", () => {
-    const cleanup = installDom("dark");
+test("useTheme reads storage and updates the theme attribute", () => {
+    const cleanup = installDom(JSON.stringify("dark"));
     __resetColorStateForTest();
 
-    initTheme();
+    const theme = useTheme();
 
-    expect(get(themeStore)).toBe("dark");
+    expect(get(theme)).toBe("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("theme")).toBe(JSON.stringify("dark"));
 
     cleanup();
 });
 
-test("useTheme updates the store and theme attribute", () => {
+test("theme store updates storage and theme attribute", () => {
     const cleanup = installDom("light");
     __resetColorStateForTest();
 
-    initTheme();
-    useTheme("dark");
+    const theme = useTheme();
+    theme.set("dark");
 
-    expect(get(themeStore)).toBe("dark");
+    expect(get(theme)).toBe("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(localStorage.getItem("theme")).toBe("dark");
+    expect(localStorage.getItem("theme")).toBe(JSON.stringify("dark"));
 
     cleanup();
 });
 
-test("initAccent and useAccent update the CSS variable", () => {
-    const cleanup = installDom("", "#ff00aa");
+test("useTheme normalizes invalid stored values across store, DOM, and storage", () => {
+    const cleanup = installDom(JSON.stringify("blue"));
     __resetColorStateForTest();
 
-    initAccent();
-    expect(get(accentStore)).toBe("#ff00aa");
+    const theme = useTheme();
+
+    expect(get(theme)).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("theme")).toBe(JSON.stringify("light"));
+
+    cleanup();
+});
+
+test("accent store reads storage and updates the CSS variable", () => {
+    const cleanup = installDom("", JSON.stringify("#ff00aa"));
+    __resetColorStateForTest();
+
+    const accent = useAccent();
+
+    expect(get(accent)).toBe("#ff00aa");
     expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe("#ff00aa");
+    expect(localStorage.getItem("accent")).toBe(JSON.stringify("#ff00aa"));
 
-    useAccent(accentColors[0].value);
+    accent.set(accentColors[0].value);
 
-    expect(get(accentStore)).toBe(accentColors[0].value);
+    expect(get(accent)).toBe(accentColors[0].value);
     expect(document.documentElement.style.getPropertyValue("--accent-color")).toBe(accentColors[0].value);
-    expect(localStorage.getItem("accent")).toBe(accentColors[0].value);
+    expect(localStorage.getItem("accent")).toBe(JSON.stringify(accentColors[0].value));
 
     cleanup();
 });

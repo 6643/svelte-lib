@@ -46,6 +46,31 @@ test("useFilePicker uses showOpenFilePicker when available", async () => {
     }
 });
 
+test("useFilePicker preserves every native picker handle when multiple is enabled", async () => {
+    const files = [
+        new File(["alpha"], "alpha.txt", { type: "text/plain" }),
+        new File(["beta"], "beta.txt", { type: "text/plain" }),
+    ];
+
+    const originalWindow = globalThis.window;
+    const originalShowOpenFilePicker = (globalThis as any).showOpenFilePicker;
+    const picker = async () => files.map((file) => ({ getFile: async () => file }));
+
+    globalThis.window = {
+        showOpenFilePicker: picker,
+    } as any;
+    (globalThis as any).showOpenFilePicker = picker;
+
+    try {
+        const picked = await useFilePicker("text/plain", true);
+
+        expect(picked?.map((file) => file.name)).toEqual(["alpha.txt", "beta.txt"]);
+    } finally {
+        globalThis.window = originalWindow;
+        (globalThis as any).showOpenFilePicker = originalShowOpenFilePicker;
+    }
+});
+
 test("useFilePicker falls back to input selection when native picker is unavailable", async () => {
     const cleanup = installDom();
     const files = [new File(["beta"], "beta.txt", { type: "text/plain" })];

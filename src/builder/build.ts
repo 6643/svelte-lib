@@ -1,18 +1,25 @@
 #!/usr/bin/env bun
 
-import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
-import { fileURLToPath } from "node:url";
 import { compile } from "svelte/compiler";
 import type { BuildConfig, BunPlugin } from "bun";
 
 import { copyConfiguredAssets, resolveConfiguredAssetsDirs, type ResolvedAssetsDir } from "./assets";
 import { formatBuildReport } from "./report";
+import {
+    createBootstrapSource,
+    createProductionEsmEnvPlugin,
+    createSveltePlugin as createSharedSveltePlugin,
+    createSvelteRuntimeAliasPlugin,
+    validateLocalSourceImportGraph,
+    validateSvelteBrowserImportAliases,
+} from "./build-internals";
 import {
     ok,
     err,
@@ -26,7 +33,14 @@ import {
     resolveConfiguredPath,
     type Result,
 } from "./utils";
-import { CONFIG_FILE_NAME, defineSvelteConfig, loadSvelteConfig, type BuildSvelteOptions } from "./config";
+import {
+    CONFIG_FILE_NAME,
+    defineSvelteConfig,
+    loadSvelteConfig,
+    resolveAppSourceRoot,
+    validateResolvedAppComponentPath,
+    type BuildSvelteOptions,
+} from "./config";
 
 export {
     ok,
@@ -34,7 +48,6 @@ export {
     getErrorMessage,
     getErrorCode,
     isPathWithinRoot,
-    isPathWithinAnyRoot,
     formatBuildLogs,
     getBuildErrorMessage,
     normalizeModulePath,
@@ -44,191 +57,8 @@ export {
 
 export { defineSvelteConfig, loadSvelteConfig, type BuildSvelteOptions } from "./config";
 
-const isRelativeImportSpecifier = (specifier: string): boolean => specifier.startsWith("./") || specifier.startsWith("../");
-
-const isLocalFileImportSpecifier = (specifier: string): boolean => specifier.startsWith("file:") || specifier.startsWith("/");
-
-const isPackageImportSpecifier = (specifier: string): boolean => specifier.startsWith("#");
-
-const isIdentifierCharacter = (value: string | undefined): boolean => value !== undefined && /[A-Za-z0-9_$]/.test(value);
-
-const skipQuotedString = (source: string, start: number, quote: "'" | '"'): number => {
-    let index = start + 1;
-
-    while (index < source.length) {
-        if (source[index] === "\\") {
-            index += 2;
-            continue;
-        }
-
-        if (source[index] === quote) {
-            return index + 1;
-        }
-
-        index += 1;
-    }
-
-    return index;
-};
-
-const skipWhitespaceAndComments = (source: string, start: number): number => {
-    let index = start;
-
-    while (index < source.length) {
-        if (/\s/.test(source[index] ?? "")) {
-            index += 1;
-            continue;
-        }
-
-        if (source[index] === "/" && source[index + 1] === "/") {
-            index += 2;
-            while (index < source.length && source[index] !== "\n") {
-                index += 1;
-            }
-            continue;
-        }
-
-        if (source[index] === "/" && source[index + 1] === "*") {
-            index += 2;
-            while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
-                index += 1;
-            }
-            index = Math.min(index + 2, source.length);
-            continue;
-        }
-
-        break;
-    }
-
-    return index;
-};
-
-const findUnsupportedDynamicImportExpression = (
-    source: string,
-    start = 0,
-    stopCharacter?: string,
-): { next: number; unsupported: boolean } => {
-    let index = start;
-
-    while (index < source.length) {
-        const character = source[index];
-
-        if (stopCharacter !== undefined && character === stopCharacter) {
-            return { next: index + 1, unsupported: false };
-        }
-
-        if (character === "/" && source[index + 1] === "/") {
-            index = skipWhitespaceAndComments(source, index);
-            continue;
-        }
-
-        if (character === "/" && source[index + 1] === "*") {
-            index = skipWhitespaceAndComments(source, index);
-            continue;
-        }
-
-        if (character === "'" || character === '"') {
-            index = skipQuotedString(source, index, character);
-            continue;
-        }
-
-        if (character === "`") {
-            index += 1;
-            while (index < source.length) {
-                if (source[index] === "\\") {
-                    index += 2;
-                    continue;
-                }
-
-                if (source[index] === "`") {
-                    index += 1;
-                    break;
-                }
-
-                if (source[index] === "$" && source[index + 1] === "{") {
-                    const nested = findUnsupportedDynamicImportExpression(source, index + 2, "}");
-                    if (nested.unsupported) {
-                        return nested;
-                    }
-                    index = nested.next;
-                    continue;
-                }
-
-                index += 1;
-            }
-            continue;
-        }
-
-        if (
-            source.startsWith("import", index) &&
-            !isIdentifierCharacter(source[index - 1]) &&
-            !isIdentifierCharacter(source[index + "import".length])
-        ) {
-            let nextIndex = skipWhitespaceAndComments(source, index + "import".length);
-            if (source[nextIndex] === "(") {
-                nextIndex = skipWhitespaceAndComments(source, nextIndex + 1);
-                const argumentStart = source[nextIndex];
-
-                if (argumentStart === "'" || argumentStart === '"') {
-                    index = skipQuotedString(source, nextIndex, argumentStart);
-                    continue;
-                }
-
-                if (argumentStart === "`") {
-                    return { next: nextIndex, unsupported: true };
-                }
-
-                return { next: nextIndex, unsupported: true };
-            }
-        }
-
-        index += 1;
-    }
-
-    return { next: index, unsupported: false };
-};
-
 const escapeHtml = (value: string): string =>
     value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-
-const SUPPORTED_LOCAL_SOURCE_MODULE_EXTENSIONS = [".svelte", ".ts", ".js", ".mjs"] as const;
-const isTypeScriptDeclarationFile = (path: string): boolean => path.endsWith(".d.ts");
-
-const formatSupportedLocalSourceModuleExtensions = (): string => SUPPORTED_LOCAL_SOURCE_MODULE_EXTENSIONS.join(", ");
-
-const JS_EXTENSIONS = [".js", ".mjs"] as const;
-
-const isSupportedJavaScriptSourceModule = (path: string): boolean => JS_EXTENSIONS.some((ext) => path.endsWith(ext));
-
-const isSupportedLocalSourceModule = (path: string): boolean =>
-    !isTypeScriptDeclarationFile(path) &&
-    SUPPORTED_LOCAL_SOURCE_MODULE_EXTENSIONS.some((extension) => path.endsWith(extension));
-
-const isSupportedSvelteSourceModule = (path: string): boolean => path.endsWith(".svelte");
-
-const isSupportedTypeScriptSourceModule = (path: string): boolean => path.endsWith(".ts") && !isTypeScriptDeclarationFile(path);
-
-type SvelteDiagnosticsKind = "errors" | "warnings";
-
-const stripSvelteDiagnosticsModule = (source: string, kind: SvelteDiagnosticsKind): string => {
-    const exportStarStatements = Array.from(source.matchAll(/^\s*export\s+\*\s+from\s+['"][^'"]+['"];\s*$/gm));
-    const exportedFunctions = Array.from(source.matchAll(/export function\s+(\w+)\s*\(([^)]*)\)\s*\{/g));
-    const exportStatements = Array.from(source.matchAll(/^\s*export\s+/gm)).length;
-    const supportedExportStatements = exportStarStatements.length + exportedFunctions.length;
-
-    if (exportedFunctions.length === 0 || supportedExportStatements !== exportStatements) {
-        throw new Error(`Unsupported Svelte ${kind} module shape for diagnostics stripping`);
-    }
-
-    return [
-        ...exportStarStatements.map(([statement]) => statement.trim()),
-        ...exportedFunctions.map(([, name, args]) => {
-            const statement =
-                kind === "errors" ? `throw Error(${JSON.stringify(name)});` : `console.warn(${JSON.stringify(name)});`;
-            return `export function ${name}(${args}) { ${statement} }`;
-        }),
-    ].join("\n");
-};
 
 const createImportPath = (fromDir: string, toPath: string): string => {
     const importPath = normalizeModulePath(relative(fromDir, toPath));
@@ -236,272 +66,9 @@ const createImportPath = (fromDir: string, toPath: string): string => {
     return importPath.startsWith(".") ? importPath : `./${importPath}`;
 };
 
-const createBootstrapSource = (appComponentImportPath = "./src/App.svelte", mountId = "app"): string =>
-    [
-        'import { mount } from "svelte";',
-        `import App from ${JSON.stringify(normalizeModulePath(appComponentImportPath))};`,
-        "",
-        `const target = document.getElementById(${JSON.stringify(mountId)});`,
-        "if (target === null) {",
-        `    throw new Error(${JSON.stringify(`Missing mount target: #${mountId}`)});`,
-        "}",
-        "",
-        "mount(App, {",
-        "    target,",
-        "});",
-    ].join("\n");
-
-const createBootstrapModuleSource = createBootstrapSource;
-
-type RuntimeElement = { id: string };
-
-type RuntimeMountScope = {
-    getElementById: (id: string) => RuntimeElement | null;
-};
-
-const normalizeMountId = (mountId: string): string => mountId.trim();
-
-const isValidMountId = (mountId: string): boolean => !/\s/u.test(mountId) && !mountId.startsWith("#");
-
 // Type-only export for editor/type-checker consumers.
 // Build/dev replace this module with a generated runtime module that embeds the configured mount id.
 export declare const mountId: string;
-
-const getMountTarget = (scope: RuntimeMountScope, mountId: string): RuntimeElement => {
-    const normalizedMountId = normalizeMountId(mountId);
-    const target = scope.getElementById(normalizedMountId);
-    if (!target) {
-        throw new Error(`Missing mount id: ${normalizedMountId}`);
-    }
-
-    return target;
-};
-
-const createRuntimeModuleSource = (mountId: string): string => {
-    const normalizedMountId = normalizeMountId(mountId);
-    if (!isValidMountId(normalizedMountId)) {
-        throw new Error(`Invalid mount id for runtime module: ${mountId}`);
-    }
-
-    return [
-        `export const mountId = ${JSON.stringify(normalizedMountId)};`,
-        "export const getMountTarget = (scope = document) => {",
-        "    const target = scope.getElementById(mountId);",
-        "    if (!target) {",
-        "        throw new Error(`Missing mount id: ${mountId}`);",
-        "    }",
-        "    return target;",
-        "};",
-    ].join("\n");
-};
-
-const resolveRelativeImportPath = async (specifier: string, importerPath: string): Promise<Result<string>> => {
-    const importerUrl = new URL(`file://${importerPath}`);
-
-    return Promise.resolve()
-        .then(() => import.meta.resolve(specifier, importerUrl.href))
-        .then(
-            (resolvedUrl) => {
-                if (!resolvedUrl.startsWith("file://")) {
-                    return err(`Unsupported local import in app source tree: ${specifier} from ${importerPath}`);
-                }
-
-                return ok(fileURLToPath(resolvedUrl));
-            },
-            (error) => err(`Failed to resolve local import ${specifier} from ${importerPath}: ${getErrorMessage(error)}`),
-        );
-};
-
-const buildImportScanner = new Bun.Transpiler({ loader: "js" });
-const buildTypeScriptTranspiler = new Bun.Transpiler({ loader: "ts" });
-
-const loadImportValidationSource = async (path: string): Promise<Result<string>> => {
-    const file = Bun.file(path);
-    const exists = await file.exists();
-    if (!exists) {
-        return err(`Missing file: ${path}`);
-    }
-
-    const source = await file.text().then(
-        (value) => ok(value),
-        (error) => err(`Failed to read ${path}: ${getErrorMessage(error)}`),
-    );
-    if (!source.ok) {
-        return source;
-    }
-
-    if (isSupportedSvelteSourceModule(path)) {
-        const compiled = compile(source.value, {
-            css: "external",
-            filename: path,
-            generate: "client",
-            modernAst: true,
-        });
-        return ok(compiled.js.code);
-    }
-
-    if (isSupportedTypeScriptSourceModule(path)) {
-        return ok(buildTypeScriptTranspiler.transformSync(source.value));
-    }
-
-    return ok(source.value);
-};
-
-const validateLocalSourceImportGraph = async (entryPath: string, allowedRoots: string[]): Promise<Result<void>> => {
-    const pending = [entryPath];
-    const visited = new Set<string>();
-
-    while (pending.length > 0) {
-        const currentPath = pending.pop();
-        if (currentPath === undefined) {
-            break;
-        }
-
-        const resolvedCurrentPath = (() => {
-            try {
-                return realpathSync(currentPath);
-            } catch {
-                return currentPath;
-            }
-        })();
-        if (visited.has(resolvedCurrentPath)) {
-            continue;
-        }
-        visited.add(resolvedCurrentPath);
-
-        const source = await loadImportValidationSource(currentPath);
-        if (!source.ok) {
-            return source;
-        }
-
-        if (findUnsupportedDynamicImportExpression(source.value).unsupported) {
-            return err(`Dynamic import expressions are not supported in app source tree: ${currentPath}`);
-        }
-
-        const specifiers = Array.from(
-            new Set(
-                buildImportScanner
-                    .scanImports(source.value)
-                    .map((record) => record.path)
-                    .filter(
-                        (specifier) =>
-                            isRelativeImportSpecifier(specifier) ||
-                            isLocalFileImportSpecifier(specifier) ||
-                            isPackageImportSpecifier(specifier),
-                    ),
-            ),
-        );
-
-        for (const specifier of specifiers) {
-            if (isLocalFileImportSpecifier(specifier)) {
-                return err(`Local import escaped app source tree: ${specifier} from ${currentPath}`);
-            }
-
-            if (isPackageImportSpecifier(specifier)) {
-                return err(`App-local package imports are not supported in app source tree: ${specifier} from ${currentPath}`);
-            }
-
-            const resolvedImport = await resolveRelativeImportPath(specifier, currentPath);
-            if (!resolvedImport.ok) {
-                return resolvedImport;
-            }
-
-            const resolvedImportPath = (() => {
-                try {
-                    return realpathSync(resolvedImport.value);
-                } catch {
-                    return resolvedImport.value;
-                }
-            })();
-
-            if (!isPathWithinAnyRoot(allowedRoots, resolvedImportPath)) {
-                return err(`Local import escaped app source tree: ${specifier} from ${currentPath}`);
-            }
-
-            if (!isSupportedLocalSourceModule(resolvedImportPath)) {
-                return err(
-                    `Unsupported local source module in app source tree: ${specifier} from ${currentPath}. Supported module extensions: ${formatSupportedLocalSourceModuleExtensions()}.`,
-                );
-            }
-
-            pending.push(resolvedImportPath);
-        }
-    }
-
-    return ok(undefined);
-};
-
-const SVELTE_BROWSER_IMPORTS = {
-    svelte: "src/index-client.js",
-    "svelte/store": "src/store/index-client.js",
-    "svelte/legacy": "src/legacy/legacy-client.js",
-    "svelte/internal": "src/internal/index.js",
-    "svelte/internal/client": "src/internal/client/index.js",
-    "svelte/internal/disclose-version": "src/internal/disclose-version.js",
-} as const;
-
-const findSveltePackageRoot = (startDir: string): string | null => {
-    let currentDir = startDir;
-
-    while (true) {
-        const packageJsonPath = join(currentDir, "node_modules", "svelte", "package.json");
-        if (existsSync(packageJsonPath)) {
-            return dirname(realpathSync(packageJsonPath));
-        }
-
-        const parentDir = dirname(currentDir);
-        if (parentDir === currentDir) {
-            return null;
-        }
-
-        currentDir = parentDir;
-    }
-};
-
-const resolveSvelteBrowserImportPath = (rootDir: string, specifier: string): string | null => {
-    const sveltePackageRoot = findSveltePackageRoot(rootDir);
-    if (sveltePackageRoot === null) {
-        return null;
-    }
-
-    const relativeRuntimePath = SVELTE_BROWSER_IMPORTS[specifier as keyof typeof SVELTE_BROWSER_IMPORTS];
-    if (relativeRuntimePath === undefined) {
-        return null;
-    }
-
-    return join(sveltePackageRoot, relativeRuntimePath);
-};
-
-const validateSvelteBrowserImportAliases = async (rootDir: string): Promise<Result<void>> => {
-    const sveltePackageRoot = findSveltePackageRoot(rootDir);
-    if (sveltePackageRoot === null) {
-        return err(`Svelte runtime alias validation failed for ${rootDir}: unable to locate node_modules/svelte/package.json.`);
-    }
-
-    const missingSpecifiers: string[] = [];
-
-    await Promise.all(
-        Object.keys(SVELTE_BROWSER_IMPORTS).map(async (specifier) => {
-            const resolvedPath = join(
-                sveltePackageRoot,
-                SVELTE_BROWSER_IMPORTS[specifier as keyof typeof SVELTE_BROWSER_IMPORTS],
-            );
-            if (!(await Bun.file(resolvedPath).exists())) {
-                missingSpecifiers.push(specifier);
-            }
-        }),
-    );
-
-    if (missingSpecifiers.length > 0) {
-        return err(
-            `Svelte runtime alias validation failed for ${rootDir}: missing browser runtime files for ${missingSpecifiers.join(", ")}.`,
-        );
-    }
-
-    return ok(undefined);
-};
-
-const createScopedCssClassName = (css: string, hash: (input: string) => string): string => `_${hash(css)}`;
 
 const readRequiredText = async (path: string): Promise<Result<string>> => {
     const file = Bun.file(path);
@@ -522,7 +89,7 @@ const compileSvelteModule = async (path: string): Promise<Result<{ css: string; 
         .then(() =>
             compile(source.value, {
                 css: "external",
-                cssHash: ({ css, hash }) => createScopedCssClassName(css, hash),
+                cssHash: ({ css, hash }) => `_${hash(css)}`,
                 dev: false,
                 filename: path,
                 generate: "client",
@@ -533,62 +100,6 @@ const compileSvelteModule = async (path: string): Promise<Result<{ css: string; 
             (error) => err(`Failed to compile ${path}: ${getErrorMessage(error)}`),
         );
 };
-
-const createProductionEsmEnvPlugin = (): BunPlugin => ({
-    name: "production-esm-env-plugin",
-    target: "browser",
-    setup: (builder) => {
-        builder.onResolve({ filter: /^esm-env\/development$/ }, () => ({
-            namespace: "svelte-builder-virtual",
-            path: "esm-env/development",
-        }));
-
-        builder.onLoad({ filter: /^esm-env\/development$/, namespace: "svelte-builder-virtual" }, () => ({
-            contents: "export default false;",
-            loader: "js",
-        }));
-
-        builder.onLoad({ filter: /internal\/(?:client|shared)\/errors\.js$/ }, async ({ path }) => ({
-            contents: stripSvelteDiagnosticsModule(await Bun.file(path).text(), "errors"),
-            loader: "js",
-        }));
-
-        builder.onLoad({ filter: /internal\/(?:client|shared)\/warnings\.js$/ }, async ({ path }) => ({
-            contents: stripSvelteDiagnosticsModule(await Bun.file(path).text(), "warnings"),
-            loader: "js",
-        }));
-    },
-});
-
-const createSvelteRuntimeAliasPlugin = (rootDir: string): BunPlugin => ({
-    name: "svelte-runtime-alias-plugin",
-    target: "browser",
-    setup: (builder) => {
-        builder.onResolve({ filter: /^svelte(?:\/.*)?$/ }, ({ path }) => {
-            const resolvedPath = resolveSvelteBrowserImportPath(rootDir, path);
-            if (resolvedPath === null) return null;
-
-            return { path: resolvedPath };
-        });
-    },
-});
-
-const createSveltePlugin = (cssByPath: Map<string, string>): BunPlugin => ({
-    name: "svelte-prod-plugin",
-    target: "browser",
-    setup: (builder) => {
-        builder.onLoad({ filter: /\.svelte$/ }, async ({ path }) => {
-            const compiled = await compileSvelteModule(path);
-            if (!compiled.ok) return Promise.reject(new Error(compiled.error));
-
-            if (compiled.value.css.length > 0) {
-                cssByPath.set(path, compiled.value.css);
-            }
-
-            return { contents: compiled.value.js, loader: "js" };
-        });
-    },
-});
 
 type HtmlShell = {
     appHtml: string;
@@ -655,6 +166,60 @@ const validateOutDir = (rootDir: string, outDir: string, appSourceRoot: string):
     return ok(outDir);
 };
 
+const resolvePhysicalTargetPath = (path: string): Result<string> => {
+    const pendingSegments: string[] = [];
+    let currentPath = path;
+
+    while (!existsSync(currentPath)) {
+        const parentPath = dirname(currentPath);
+        if (parentPath === currentPath) {
+            return err(`Invalid outDir in ${CONFIG_FILE_NAME}: expected an existing parent directory.`);
+        }
+        pendingSegments.unshift(basename(currentPath));
+        currentPath = parentPath;
+    }
+
+    try {
+        return ok(join(realpathSync(currentPath), ...pendingSegments));
+    } catch (error) {
+        return err(`Invalid outDir in ${CONFIG_FILE_NAME}: failed to resolve physical path: ${getErrorMessage(error)}`);
+    }
+};
+
+const validatePhysicalOutDir = (rootDir: string, outDir: string): Result<string> => {
+    const physicalRootDir = (() => {
+        try {
+            return realpathSync(rootDir);
+        } catch (error) {
+            return err(`Invalid rootDir in ${CONFIG_FILE_NAME}: failed to resolve physical path: ${getErrorMessage(error)}`);
+        }
+    })();
+    if (typeof physicalRootDir !== "string") return physicalRootDir;
+
+    const physicalOutDir = resolvePhysicalTargetPath(outDir);
+    if (!physicalOutDir.ok) return physicalOutDir;
+
+    if (!isPathWithinRoot(physicalRootDir, physicalOutDir.value)) {
+        return err(`Invalid outDir in ${CONFIG_FILE_NAME}: symbolic links must resolve inside the project root.`);
+    }
+
+    return physicalOutDir;
+};
+
+const validateOutDirDoesNotOverlapAssets = (physicalOutDir: string, assetsDirs: ResolvedAssetsDir[]): Result<void> => {
+    const overlappingAssetsDir = assetsDirs.find(
+        (assetsDir) =>
+            isPathWithinRoot(assetsDir.physicalPath, physicalOutDir) ||
+            isPathWithinRoot(physicalOutDir, assetsDir.physicalPath),
+    );
+
+    if (overlappingAssetsDir !== undefined) {
+        return err(`Configured assets directory overlaps the build output tree: ${overlappingAssetsDir.physicalPath}`);
+    }
+
+    return ok(undefined);
+};
+
 const createHtmlShell = (mountId: string, appTitle = DEFAULT_HTML_SHELL.title): HtmlShell => ({
     appHtml: `<main id="${escapeHtml(mountId)}"></main>`,
     lang: "en",
@@ -662,7 +227,10 @@ const createHtmlShell = (mountId: string, appTitle = DEFAULT_HTML_SHELL.title): 
 });
 
 const prepareDir = async (path: string): Promise<Result<string>> =>
-    mkdir(path, { recursive: true }).then(
+    rm(path, { force: true, recursive: true }).then(
+        () => mkdir(path, { recursive: true }),
+        (error) => Promise.reject(error),
+    ).then(
         () => ok(path),
         (error) => err(`Failed to create ${path}: ${getErrorMessage(error)}`),
     );
@@ -721,6 +289,10 @@ const resolveBuildContext = async (rootDir: string, options: BuildSvelteOptions)
 
     const validatedOutDir = validateOutDir(rootDir, outDirRaw, appSourceRoot.value);
     if (!validatedOutDir.ok) return validatedOutDir;
+    const physicalOutDir = validatePhysicalOutDir(rootDir, validatedOutDir.value);
+    if (!physicalOutDir.ok) return physicalOutDir;
+    const validatedAssetRoots = validateOutDirDoesNotOverlapAssets(physicalOutDir.value, assetsDirs.value);
+    if (!validatedAssetRoots.ok) return validatedAssetRoots;
 
     return ok({
         rootDir,
@@ -783,48 +355,6 @@ const validateAppComponent = (value: unknown, field: string): Result<string> => 
     return ok(normalizedAppComponent);
 };
 
-const resolveAppSourceRoot = (rootDir: string, appComponentPath: string, configFileName = CONFIG_FILE_NAME): Result<string> => {
-    const appComponentRelativeToRoot = relative(rootDir, appComponentPath);
-    if (appComponentRelativeToRoot.startsWith("..") || isAbsolute(appComponentRelativeToRoot)) {
-        return err(`Invalid appComponent in ${configFileName}: expected a path inside the project root.`);
-    }
-    const segments = appComponentRelativeToRoot.split(/[\\/]/).filter((segment) => segment.length > 0);
-    const [topLevelDir] = segments;
-    if (topLevelDir === undefined) {
-        return err(
-            `Invalid appComponent in ${configFileName}: expected a component path inside src/ or another top-level source directory.`,
-        );
-    }
-    if (segments.length === 1) {
-        return ok(rootDir);
-    }
-    return ok(topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir));
-};
-
-const validateResolvedAppComponentPath = (
-    rootDir: string,
-    appSourceRoot: string,
-    resolvedAppComponentPath: string,
-    configFileName = CONFIG_FILE_NAME,
-): Result<string> => {
-    const physicalPath = (() => {
-        try {
-            return realpathSync(resolvedAppComponentPath);
-        } catch {
-            return null;
-        }
-    })();
-    if (physicalPath === null) {
-        return err(`Invalid appComponent in ${configFileName}: file does not exist: ${resolvedAppComponentPath}.`);
-    }
-    if (!isPathWithinRoot(rootDir, physicalPath) || !isPathWithinRoot(appSourceRoot, physicalPath)) {
-        return err(
-            `Invalid appComponent in ${configFileName}: symbolic links must resolve inside the app source tree (${appSourceRoot}).`,
-        );
-    }
-    return ok(resolvedAppComponentPath);
-};
-
 const buildSvelte = async (options: BuildSvelteOptions = {}): Promise<Result<BuildArtifacts>> => {
     const rootDir = resolve(options.rootDir ?? process.cwd());
 
@@ -865,7 +395,7 @@ const buildSvelte = async (options: BuildSvelteOptions = {}): Promise<Result<Bui
             plugins: [
                 createSvelteRuntimeAliasPlugin(ctx.value.rootDir),
                 ctx.value.stripSvelteDiagnostics ? createProductionEsmEnvPlugin() : null,
-                createSveltePlugin(cssByPath),
+                createSharedSveltePlugin(cssByPath, compileSvelteModule),
             ].filter((plugin): plugin is BunPlugin => plugin !== null),
             sourcemap: ctx.value.sourcemap ? "inline" : ("none" as BuildConfig["sourcemap"]),
             splitting: true,

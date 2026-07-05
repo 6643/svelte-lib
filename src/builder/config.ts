@@ -253,7 +253,7 @@ export const loadSvelteConfig = async (
   }
 };
 
-const resolveAppSourceRoot = (
+export const resolveAppSourceRoot = (
   rootDir: string,
   appComponentPath: string,
   configFileName = CONFIG_FILE_NAME,
@@ -277,14 +277,16 @@ const resolveAppSourceRoot = (
     );
   }
   if (segments.length === 1) {
-    return ok(rootDir);
+    return err(
+      `Invalid appComponent in ${configFileName}: expected a component path inside src/ or another top-level source directory.`,
+    );
   }
   return ok(
     topLevelDir === "src" ? join(rootDir, "src") : join(rootDir, topLevelDir),
   );
 };
 
-const validateResolvedAppComponentPath = (
+export const validateResolvedAppComponentPath = (
   rootDir: string,
   appSourceRoot: string,
   resolvedAppComponentPath: string,
