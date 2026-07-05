@@ -293,11 +293,14 @@ test("util shared state modules use rune state instead of svelte stores", () => 
         expect(source.includes("svelte/store")).toBe(false);
     }
 
-    expect(readRepoFile("src/util/useStorage.svelte.ts").includes("export const storageState")).toBe(true);
-    expect(readRepoFile("src/util/useFullScreen.svelte.ts").includes("export const fullscreenState")).toBe(true);
-    expect(readRepoFile("src/util/useWakeLock.svelte.ts").includes("export const wakeLockState")).toBe(true);
-    expect(readRepoFile("src/util/color.svelte.ts").includes("export const themeState")).toBe(true);
-    expect(readRepoFile("src/util/color.svelte.ts").includes("export const accentState")).toBe(true);
+    expect(readRepoFile("src/util/useStorage.svelte.ts").includes("export const storage")).toBe(true);
+    expect(readRepoFile("src/util/useFullScreen.svelte.ts").includes("export const isFullscreen")).toBe(true);
+    expect(readRepoFile("src/util/useFullScreen.svelte.ts").includes("export const setFullscreen")).toBe(true);
+    expect(readRepoFile("src/util/useWakeLock.svelte.ts").includes("export const isWakeLockActive")).toBe(true);
+    expect(readRepoFile("src/util/color.svelte.ts").includes("export const theme")).toBe(true);
+    expect(readRepoFile("src/util/color.svelte.ts").includes("export const setTheme")).toBe(true);
+    expect(readRepoFile("src/util/color.svelte.ts").includes("export const accent")).toBe(true);
+    expect(readRepoFile("src/util/color.svelte.ts").includes("export const setAccent")).toBe(true);
     expect(readRepoFile("src/util/color.svelte.ts").includes("./useStorage.svelte.ts")).toBe(true);
 
     expect(existsSync(resolve(repoRoot, "src/util/color.ts"))).toBe(false);

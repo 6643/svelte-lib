@@ -1,6 +1,6 @@
 export type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
-export type StorageState<T> = {
-    value: T;
+export type StorageSlot<T> = {
+    value: () => T;
     set: (value: T) => void;
     update: (updater: (value: T) => T) => void;
     remove: () => void;
@@ -32,32 +32,25 @@ const removeStoredValue = (storage: StorageLike, key: string): void => {
     }
 };
 
-export const storageState = <T>(key: string, initialValue: T, storage: StorageLike = globalThis.localStorage): StorageState<T> => {
-    const state = $state({
-        value: readStoredValue(storage, key, initialValue),
-    });
+export const storage = <T>(key: string, initialValue: T, storage: StorageLike = globalThis.localStorage): StorageSlot<T> => {
+    let currentValue = $state(readStoredValue(storage, key, initialValue));
 
     const set = (nextValue: T) => {
-        state.value = nextValue;
+        currentValue = nextValue;
         writeStoredValue(storage, key, nextValue);
     };
 
     const update = (updater: (value: T) => T) => {
-        set(updater(state.value));
+        set(updater(currentValue));
     };
 
     const remove = () => {
         removeStoredValue(storage, key);
-        state.value = initialValue;
+        currentValue = initialValue;
     };
 
     return {
-        get value() {
-            return state.value;
-        },
-        set value(nextValue: T) {
-            set(nextValue);
-        },
+        value: () => currentValue,
         set,
         update,
         remove,

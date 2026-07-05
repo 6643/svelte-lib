@@ -1,4 +1,4 @@
-import { storageState, type StorageState } from "./useStorage.svelte.ts";
+import { storage, type StorageSlot } from "./useStorage.svelte.ts";
 
 export type ThemeMode = "dark" | "light";
 
@@ -17,10 +17,10 @@ const ACCENT_KEY = "accent";
 const defaultTheme: ThemeMode = "light";
 const defaultAccent: string = accentColors[0].value;
 
-type ColorState<T> = StorageState<T>;
+type ColorSlot<T> = StorageSlot<T>;
 
-let currentThemeState: ColorState<ThemeMode> | undefined;
-let currentAccentState: ColorState<string> | undefined;
+let currentThemeStorage: ColorSlot<ThemeMode> | undefined;
+let currentAccentStorage: ColorSlot<string> | undefined;
 
 const normalizeTheme = (value: ThemeMode): ThemeMode => (value === "dark" ? "dark" : "light");
 
@@ -38,66 +38,49 @@ const createColorStorage = <T>(
     initialValue: T,
     normalize: (value: T) => T,
     apply: (value: T) => void,
-): ColorState<T> => {
-    const state = storageState(key, initialValue);
-    const storedValue = state.value;
+): ColorSlot<T> => {
+    const state = storage(key, initialValue);
+    const storedValue = state.value();
     const normalizedStoredValue = normalize(storedValue);
     if (!Object.is(storedValue, normalizedStoredValue)) {
         state.set(normalizedStoredValue);
     }
     apply(normalizedStoredValue);
-
-    const set = (value: T) => {
-        state.set(normalize(value));
-        apply(state.value);
-    };
-
-    const update = (updater: (value: T) => T) => {
-        set(updater(normalize(state.value)));
-    };
-
-    const remove = () => {
-        state.remove();
-        const normalized = normalize(state.value);
-        if (!Object.is(state.value, normalized)) {
-            state.set(normalized);
-        }
-        apply(state.value);
-    };
-
-    return {
-        get value() {
-            return state.value;
-        },
-        set value(value: T) {
-            set(value);
-        },
-        set,
-        update,
-        remove,
-    };
-};
-
-export const themeState = (): ColorState<ThemeMode> => {
-    if (currentThemeState) return currentThemeState;
-    const state = createColorStorage(THEME_KEY, defaultTheme, normalizeTheme, applyTheme);
-    currentThemeState = state;
     return state;
 };
 
-export const accentState = (): ColorState<string> => {
-    if (currentAccentState) return currentAccentState;
-    const state = createColorStorage(ACCENT_KEY, defaultAccent, (value) => value, applyAccent);
-    currentAccentState = state;
-    return state;
+const ensureThemeStorage = (): ColorSlot<ThemeMode> => {
+    if (currentThemeStorage) return currentThemeStorage;
+    currentThemeStorage = createColorStorage(THEME_KEY, defaultTheme, normalizeTheme, applyTheme);
+    return currentThemeStorage;
+};
+
+const ensureAccentStorage = (): ColorSlot<string> => {
+    if (currentAccentStorage) return currentAccentStorage;
+    currentAccentStorage = createColorStorage(ACCENT_KEY, defaultAccent, (value) => value, applyAccent);
+    return currentAccentStorage;
+};
+
+export const theme = (): ThemeMode => ensureThemeStorage().value();
+
+export const setTheme = (value: ThemeMode): void => {
+    const nextTheme = normalizeTheme(value);
+    ensureThemeStorage().set(nextTheme);
+    applyTheme(nextTheme);
+};
+
+export const accent = (): string => ensureAccentStorage().value();
+
+export const setAccent = (value: string): void => {
+    ensureAccentStorage().set(value);
+    applyAccent(value);
 };
 
 export const toggleTheme = (): void => {
-    const theme = themeState();
-    theme.set(theme.value === "dark" ? "light" : "dark");
+    setTheme(theme() === "dark" ? "light" : "dark");
 };
 
 export const __resetColorStateForTest = (): void => {
-    currentThemeState = undefined;
-    currentAccentState = undefined;
+    currentThemeStorage = undefined;
+    currentAccentStorage = undefined;
 };

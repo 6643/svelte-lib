@@ -1,8 +1,8 @@
-const isFullscreen = $state({ value: false });
+let currentFullscreen = $state(false);
 let fullscreenListenerBound = false;
 
 const syncFullscreenState = () => {
-    isFullscreen.value = typeof document !== "undefined" ? !!document.fullscreenElement : false;
+    currentFullscreen = typeof document !== "undefined" ? !!document.fullscreenElement : false;
 };
 
 const ensureFullscreenRuntime = () => {
@@ -15,25 +15,33 @@ const ensureFullscreenRuntime = () => {
     fullscreenListenerBound = true;
 };
 
-export const fullscreenState = () => {
+export const isFullscreen = (): boolean => {
     ensureFullscreenRuntime();
-
-    const toggleFullScreen = async () => {
-        if (typeof document === "undefined") return;
-
-        if (!isFullscreen.value) {
-            const requestFullscreen = document.documentElement.requestFullscreen?.bind(document.documentElement);
-            if (!requestFullscreen) return;
-
-            await requestFullscreen().catch(() => undefined);
-            return;
-        }
-
-        const exitFullscreen = document.exitFullscreen?.bind(document);
-        if (!exitFullscreen) return;
-
-        await exitFullscreen().catch(() => undefined);
-    };
-
-    return { isFullscreen, toggleFullScreen };
+    return currentFullscreen;
 };
+
+export const setFullscreen = async (enabled: boolean): Promise<void> => {
+    if (typeof document === "undefined") return;
+
+    ensureFullscreenRuntime();
+    if (enabled) {
+        if (currentFullscreen) return;
+
+        const requestFullscreen = document.documentElement.requestFullscreen?.bind(document.documentElement);
+        if (!requestFullscreen) return;
+
+        await requestFullscreen().catch(() => undefined);
+        syncFullscreenState();
+        return;
+    }
+
+    if (!currentFullscreen) return;
+
+    const exitFullscreen = document.exitFullscreen?.bind(document);
+    if (!exitFullscreen) return;
+
+    await exitFullscreen().catch(() => undefined);
+    syncFullscreenState();
+};
+
+export const toggleFullscreen = async (): Promise<void> => setFullscreen(!isFullscreen());

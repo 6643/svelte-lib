@@ -18,19 +18,25 @@ const installDom = () => {
     };
 };
 
-test("fullscreenState exposes fullscreen as rune state", async () => {
+test("fullscreen helpers expose current state and fullscreen actions", async () => {
     const cleanup = installDom();
-    const { fullscreenState } = await loadRuneModule<{
-        fullscreenState: () => {
-            isFullscreen: { value: boolean };
-            toggleFullScreen: () => Promise<void>;
-        };
+    const { isFullscreen, setFullscreen, toggleFullscreen } = await loadRuneModule<{
+        isFullscreen: () => boolean;
+        setFullscreen: (enabled: boolean) => Promise<void>;
+        toggleFullscreen: () => Promise<void>;
     }>("./useFullScreen.svelte.ts", import.meta.url);
+    let requested = false;
+    document.documentElement.requestFullscreen = async () => {
+        requested = true;
+    };
 
-    const fullScreen = fullscreenState();
+    expect(isFullscreen()).toBe(false);
+    expect(typeof setFullscreen).toBe("function");
+    expect(typeof toggleFullscreen).toBe("function");
 
-    expect(fullScreen.isFullscreen.value).toBe(false);
-    expect(typeof fullScreen.toggleFullScreen).toBe("function");
+    await setFullscreen(true);
+
+    expect(requested).toBe(true);
 
     cleanup();
 });

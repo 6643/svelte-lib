@@ -1,53 +1,64 @@
-export const wakeLockState = () => {
-    const isSupportedWakeLock = $state({ value: typeof navigator !== "undefined" && "wakeLock" in navigator });
-    const isWakeLockActive = $state({ value: false });
-    let wakeLock: WakeLockSentinel | null = null;
-    let wakeLockRequest: Promise<void> | null = null;
+let supportedWakeLock = $state(typeof navigator !== "undefined" && "wakeLock" in navigator);
+let activeWakeLock = $state(false);
+let wakeLock: WakeLockSentinel | null = null;
+let wakeLockRequest: Promise<void> | null = null;
 
-    const request = async () => {
-        if (typeof navigator === "undefined" || !("wakeLock" in navigator) || wakeLock) return;
-        if (wakeLockRequest) {
-            await wakeLockRequest;
-            return;
-        }
+const syncWakeLockSupport = (): boolean => {
+    supportedWakeLock = typeof navigator !== "undefined" && "wakeLock" in navigator;
+    return supportedWakeLock;
+};
 
-        wakeLockRequest = (async () => {
-            try {
-                const nextWakeLock = await navigator.wakeLock.request("screen");
-                wakeLock = nextWakeLock;
-                isWakeLockActive.value = true;
-                nextWakeLock.addEventListener("release", () => {
-                    if (wakeLock !== nextWakeLock) return;
-                    isWakeLockActive.value = false;
-                    wakeLock = null;
-                });
-            } catch {
-                isWakeLockActive.value = false;
-                wakeLock = null;
-            } finally {
-                wakeLockRequest = null;
-            }
-        })();
-
+const request = async () => {
+    if (!syncWakeLockSupport() || wakeLock) return;
+    if (wakeLockRequest) {
         await wakeLockRequest;
-    };
+        return;
+    }
 
-    const release = async () => {
-        if (wakeLockRequest) {
-            await wakeLockRequest;
+    wakeLockRequest = (async () => {
+        try {
+            const nextWakeLock = await navigator.wakeLock.request("screen");
+            wakeLock = nextWakeLock;
+            activeWakeLock = true;
+            nextWakeLock.addEventListener("release", () => {
+                if (wakeLock !== nextWakeLock) return;
+                activeWakeLock = false;
+                wakeLock = null;
+            });
+        } catch {
+            activeWakeLock = false;
+            wakeLock = null;
+        } finally {
+            wakeLockRequest = null;
         }
-        if (!wakeLock) return;
-        await wakeLock.release();
-    };
+    })();
 
-    const setWakeLockActive = async (active: boolean) => {
-        if (active) {
-            await request();
-            return;
-        }
+    await wakeLockRequest;
+};
 
-        await release();
-    };
+const release = async () => {
+    if (wakeLockRequest) {
+        await wakeLockRequest;
+    }
+    if (!wakeLock) return;
 
-    return { isSupportedWakeLock, isWakeLockActive, setWakeLockActive };
+    const currentWakeLock = wakeLock;
+    await currentWakeLock.release().catch(() => undefined);
+    if (wakeLock !== currentWakeLock) return;
+
+    activeWakeLock = false;
+    wakeLock = null;
+};
+
+export const isWakeLockSupported = (): boolean => syncWakeLockSupport();
+
+export const isWakeLockActive = (): boolean => activeWakeLock;
+
+export const setWakeLockActive = async (active: boolean): Promise<void> => {
+    if (active) {
+        await request();
+        return;
+    }
+
+    await release();
 };

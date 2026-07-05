@@ -2,19 +2,19 @@ import { expect, test } from "bun:test";
 
 import { loadRuneModule } from "./load-rune-module.test-helper.ts";
 
-type StorageState<T> = {
-    value: T;
+type StorageSlot<T> = {
+    value: () => T;
     set: (value: T) => void;
     update: (updater: (value: T) => T) => void;
     remove: () => void;
 };
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-const loadUseStorage = async () => {
+const loadStorage = async () => {
     const module = await loadRuneModule<{
-        storageState: <T>(key: string, initialValue: T, storage?: StorageLike) => StorageState<T>;
+        storage: <T>(key: string, initialValue: T, storage?: StorageLike) => StorageSlot<T>;
     }>("./useStorage.svelte.ts", import.meta.url);
-    return module.storageState;
+    return module.storage;
 };
 
 const createStorage = (seed: Record<string, string> = {}) => {
@@ -37,66 +37,66 @@ const createStorage = (seed: Record<string, string> = {}) => {
     };
 };
 
-test("storageState reads the stored value", async () => {
-    const useStorage = await loadUseStorage();
+test("storage reads the stored value", async () => {
+    const storageSlot = await loadStorage();
     const storage = createStorage({ count: JSON.stringify(3) });
-    const state = useStorage("count", 0, storage);
+    const state = storageSlot("count", 0, storage);
 
-    expect(state.value).toBe(3);
+    expect(state.value()).toBe(3);
 });
 
-test("storageState does not write during initialization", async () => {
-    const useStorage = await loadUseStorage();
+test("storage does not write during initialization", async () => {
+    const storageSlot = await loadStorage();
     const storage = createStorage({ count: JSON.stringify(3) });
 
-    useStorage("count", 0, storage);
+    storageSlot("count", 0, storage);
 
     expect(storage.writes).toEqual([]);
 });
 
-test("storageState writes updates back to storage", async () => {
-    const useStorage = await loadUseStorage();
+test("storage writes updates back to storage", async () => {
+    const storageSlot = await loadStorage();
     const storage = createStorage();
-    const state = useStorage("count", 0, storage);
+    const state = storageSlot("count", 0, storage);
 
     state.set(4);
 
-    expect(state.value).toBe(4);
+    expect(state.value()).toBe(4);
     expect(storage.getItem("count")).toBe("4");
 });
 
-test("storageState updates from the current state value", async () => {
-    const useStorage = await loadUseStorage();
+test("storage updates from the current state value", async () => {
+    const storageSlot = await loadStorage();
     const storage = createStorage({ count: JSON.stringify(3) });
-    const state = useStorage("count", 0, storage);
+    const state = storageSlot("count", 0, storage);
 
     state.update((value) => value + 1);
 
-    expect(state.value).toBe(4);
+    expect(state.value()).toBe(4);
     expect(storage.getItem("count")).toBe("4");
 });
 
-test("storageState exposes explicit removal", async () => {
-    const useStorage = await loadUseStorage();
+test("storage exposes explicit removal", async () => {
+    const storageSlot = await loadStorage();
     const storage = createStorage({ count: JSON.stringify(3) });
-    const state = useStorage("count", 0, storage);
+    const state = storageSlot("count", 0, storage);
 
     state.remove();
 
     expect(storage.removes).toEqual(["count"]);
-    expect(state.value).toBe(0);
+    expect(state.value()).toBe(0);
 });
 
-test("storageState falls back to the initial value when stored JSON is invalid", async () => {
-    const useStorage = await loadUseStorage();
+test("storage falls back to the initial value when stored JSON is invalid", async () => {
+    const storageSlot = await loadStorage();
     const storage = createStorage({ count: "not-json" });
-    const state = useStorage("count", 0, storage);
+    const state = storageSlot("count", 0, storage);
 
-    expect(state.value).toBe(0);
+    expect(state.value()).toBe(0);
 });
 
-test("storageState works without storage methods throwing", async () => {
-    const useStorage = await loadUseStorage();
+test("storage works without storage methods throwing", async () => {
+    const storageSlot = await loadStorage();
     const storage = {
         getItem: () => {
             throw new Error("unavailable");
@@ -109,9 +109,9 @@ test("storageState works without storage methods throwing", async () => {
         },
     };
 
-    const state = useStorage("count", 0, storage);
+    const state = storageSlot("count", 0, storage);
 
-    expect(state.value).toBe(0);
+    expect(state.value()).toBe(0);
     expect(() => state.set(1)).not.toThrow();
     expect(() => state.remove()).not.toThrow();
 });
