@@ -201,26 +201,55 @@ export const createImportPath = (fromDir: string, toPath: string): string => {
     return importPath.startsWith(".") ? importPath : `./${importPath}`;
 };
 
-export const createBootstrapSource = (appComponentImportPath = "./src/App.svelte", mountId = "app"): string =>
+const createMountTargetResolverSource = (mountId: string, exported: boolean): string => {
+    const exportKeyword = exported ? "export " : "";
+
+    return [
+        `${exportKeyword}const mountId = ${JSON.stringify(mountId)};`,
+        `${exportKeyword}const getMountTarget = (scope = document) => {`,
+        "    let target = scope.getElementById(mountId);",
+        "    if (target) return target;",
+        "    const body = scope.body;",
+        '    if (!body) throw new Error("Cannot create mount target before document.body exists");',
+        '    target = scope.createElement("div");',
+        "    target.id = mountId;",
+        "    body.append(target);",
+        "    return target;",
+        "};",
+    ].join("\n");
+};
+
+export const createBootstrapSource = (
+    appComponentImportPath = "./src/App.svelte",
+    mountId = "app",
+    enableHotReload = false,
+): string =>
     [
-        'import { mount } from "svelte";',
+        enableHotReload ? 'import { mount, unmount } from "svelte";' : 'import { mount } from "svelte";',
         `import App from ${JSON.stringify(normalizeModulePath(appComponentImportPath))};`,
         "",
-        `const target = document.getElementById(${JSON.stringify(mountId)});`,
-        "if (target === null) {",
-        `    throw new Error(${JSON.stringify(`Missing mount target: #${mountId}`)});`,
-        "}",
+        createMountTargetResolverSource(mountId, false),
         "",
-        "mount(App, {",
+        "const target = getMountTarget();",
+        "",
+        enableHotReload ? "let instance = mount(App, {" : "mount(App, {",
         "    target,",
         "});",
+        ...(enableHotReload
+            ? [
+                  "",
+                  "if (import.meta.hot) {",
+                  "    import.meta.hot.accept((nextModule) => {",
+                  "        const nextApp = nextModule?.default;",
+                  "        if (nextApp === undefined) return;",
+                  "        void unmount(instance).then(() => {",
+                  "            instance = mount(nextApp, { target });",
+                  "        });",
+                  "    });",
+                  "}",
+              ]
+            : []),
     ].join("\n");
-
-type RuntimeElement = { id: string };
-
-type RuntimeMountScope = {
-    getElementById: (id: string) => RuntimeElement | null;
-};
 
 const normalizeMountId = (mountId: string): string => mountId.trim();
 
@@ -232,16 +261,7 @@ export const createRuntimeModuleSource = (mountId: string): string => {
         throw new Error(`Invalid mount id for runtime module: ${mountId}`);
     }
 
-    return [
-        `export const mountId = ${JSON.stringify(normalizedMountId)};`,
-        "export const getMountTarget = (scope = document) => {",
-        "    const target = scope.getElementById(mountId);",
-        "    if (!target) {",
-        "        throw new Error(`Missing mount id: ${mountId}`);",
-        "    }",
-        "    return target;",
-        "};",
-    ].join("\n");
+    return createMountTargetResolverSource(normalizedMountId, true);
 };
 
 const resolveRelativeImportPath = async (specifier: string, importerPath: string): Promise<Result<string>> => {
@@ -499,35 +519,6 @@ export const createSvelteRuntimeAliasPlugin = (rootDir: string): BunPlugin => ({
             }
 
             return { path: resolvedPath };
-        });
-    },
-});
-
-export const createSveltePlugin = (
-    cssByPath: Map<string, string>,
-    compileSvelteModule: (path: string) => Promise<Result<{ css: string; js: string }>>,
-): BunPlugin => ({
-    name: "svelte-prod-plugin",
-    target: "browser",
-    setup: (builder) => {
-        builder.onLoad({ filter: /\.svelte\.(?:ts|js)$/ }, async ({ path }) => {
-            const compiled = compileModule(prepareSvelteRunesSource(path, await Bun.file(path).text()), {
-                filename: path,
-            });
-            return { contents: compiled.js.code, loader: "js" };
-        });
-
-        builder.onLoad({ filter: /\.svelte$/ }, async ({ path }) => {
-            const compiled = await compileSvelteModule(path);
-            if (!compiled.ok) {
-                return Promise.reject(new Error(compiled.error));
-            }
-
-            if (compiled.value.css.length > 0) {
-                cssByPath.set(path, compiled.value.css);
-            }
-
-            return { contents: compiled.value.js, loader: "js" };
         });
     },
 });
