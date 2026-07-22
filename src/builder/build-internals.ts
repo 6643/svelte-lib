@@ -4,7 +4,15 @@ import { fileURLToPath } from "node:url";
 import { compile, compileModule } from "svelte/compiler";
 import type { BunPlugin } from "bun";
 
-import { err, getErrorMessage, isPathWithinAnyRoot, normalizeModulePath, ok, type Result } from "./utils";
+import {
+    err,
+    getErrorMessage,
+    isPathWithinAnyRoot,
+    isValidMountIdToken,
+    normalizeModulePath,
+    ok,
+    type Result,
+} from "./utils";
 
 export const isRelativeImportSpecifier = (specifier: string): boolean =>
     specifier.startsWith("./") || specifier.startsWith("../");
@@ -219,16 +227,25 @@ const createMountTargetResolverSource = (mountId: string, exported: boolean): st
     ].join("\n");
 };
 
+const assertValidMountId = (mountId: string): string => {
+    if (!isValidMountIdToken(mountId)) {
+        throw new Error(`Invalid mount id: ${mountId}`);
+    }
+    return mountId;
+};
+
 export const createBootstrapSource = (
     appComponentImportPath = "./src/App.svelte",
     mountId = "app",
     enableHotReload = false,
-): string =>
-    [
+): string => {
+    const validMountId = assertValidMountId(mountId);
+
+    return [
         enableHotReload ? 'import { mount, unmount } from "svelte";' : 'import { mount } from "svelte";',
         `import App from ${JSON.stringify(normalizeModulePath(appComponentImportPath))};`,
         "",
-        createMountTargetResolverSource(mountId, false),
+        createMountTargetResolverSource(validMountId, false),
         "",
         "const target = getMountTarget();",
         "",
@@ -250,18 +267,10 @@ export const createBootstrapSource = (
               ]
             : []),
     ].join("\n");
-
-const normalizeMountId = (mountId: string): string => mountId.trim();
-
-const isValidMountId = (mountId: string): boolean => !/\s/u.test(mountId) && !mountId.startsWith("#");
+};
 
 export const createRuntimeModuleSource = (mountId: string): string => {
-    const normalizedMountId = normalizeMountId(mountId);
-    if (!isValidMountId(normalizedMountId)) {
-        throw new Error(`Invalid mount id for runtime module: ${mountId}`);
-    }
-
-    return createMountTargetResolverSource(normalizedMountId, true);
+    return createMountTargetResolverSource(assertValidMountId(mountId), true);
 };
 
 const resolveRelativeImportPath = async (specifier: string, importerPath: string): Promise<Result<string>> => {

@@ -3,6 +3,8 @@ node_modules
 bun.lock
 .worktrees
 .bun-svelte-cache
+.tmp/
+.playwright-cli/
 
 # demo app
 demo/node_modules/

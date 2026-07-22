@@ -2,29 +2,37 @@
 
 import { randomInt } from "node:crypto";
 
-import { existsSync, lstatSync, readdirSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
+import { existsSync, lstatSync, readdirSync, realpathSync, statSync, watch } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 import { dirname, isAbsolute, join, relative } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { gzipSync } from "node:zlib";
-import { compile, compileModule } from "svelte/compiler";
-import type { ErrorLike, Server } from "bun";
+import type { BuildConfig, ErrorLike, Server } from "bun";
 
 import {
     createBootstrapSource,
     createImportPath,
     escapeHtml,
-    isSupportedJavaScriptSourceModule,
     isSupportedLocalSourceModule,
     isSupportedSvelteRunesSourceModule,
     isSupportedSvelteSourceModule,
-    isSupportedTypeScriptSourceModule,
+    createSvelteRuntimeAliasPlugin,
     validateLocalSourceImportGraph,
     validateSvelteBrowserImportAliases,
 } from "./build-internals";
 
-import { ok, err, getErrorMessage, getErrorCode, normalizeModulePath, resolveConfiguredPath, type Result } from "./utils";
+import {
+    ok,
+    err,
+    formatBuildLogs,
+    getErrorMessage,
+    getErrorCode,
+    normalizeModulePath,
+    resolveConfiguredPath,
+    type Result,
+} from "./utils";
 import {
     loadSvelteConfig,
     resolveAppSourceRoot,
@@ -34,6 +42,13 @@ import {
 
 import { resolveConfiguredAssetsDirs, resolvePhysicalAssetPath, type ResolvedAssetsDir } from "./assets";
 import { formatAssetReport } from "./report";
+import {
+    createNativeDevServerExitSupervisor,
+    createNativeDevWorkspace,
+    startNativeDevServer,
+    type NativeDevServerHandle,
+} from "./native-dev";
+import { createMountTargetPlugin, createSvelteBunPlugin } from "./svelte-plugin";
 
 // ---- Types ----
 
@@ -43,7 +58,7 @@ type DevCompileCacheEntry = {
 };
 
 type DevCompileCache = {
-    invalidate: (cacheKey: string) => void;
+    clear: () => void;
     read: (cacheKey: string, mtimeMs: number) => string | undefined;
     write: (cacheKey: string, mtimeMs: number, contents: string) => void;
 };
@@ -74,8 +89,8 @@ const createDevCompileCache = (): DevCompileCache => {
     const entries = new Map<string, DevCompileCacheEntry>();
 
     return {
-        invalidate: (cacheKey) => {
-            entries.delete(cacheKey);
+        clear: () => {
+            entries.clear();
         },
         read: (cacheKey, mtimeMs) => {
             const entry = entries.get(cacheKey);
@@ -94,141 +109,6 @@ const createDevCompileCache = (): DevCompileCache => {
 const createDevCompileCacheKey = (rootDir: string, modulePath: string): string =>
     normalizeModulePath(join(rootDir, modulePath));
 
-// ---- File reading ----
-
-const loadRequiredText = async (path: string): Promise<Result<string>> => {
-    const file = Bun.file(path);
-    const exists = await file.exists();
-    if (!exists) {
-        return err(`Missing file: ${path}`);
-    }
-
-    return file.text().then(
-        (value) => ok(value),
-        (error) => err(`Failed to read ${path}: ${getErrorMessage(error)}`),
-    );
-};
-
-// ---- CSS injection ----
-
-const createCssInjection = (modulePath: string, cssCode: string | undefined): string => {
-    if (!cssCode) {
-        return "";
-    }
-
-    return [
-        "(() => {",
-        `    const id = ${JSON.stringify(modulePath)};`,
-        `    if (!document.querySelector(\`style[data-svelte-id="\${id}"]\`)) {`,
-        `        const style = document.createElement("style");`,
-        `        style.setAttribute("data-svelte-id", id);`,
-        `        style.textContent = ${JSON.stringify(cssCode)};`,
-        `        document.head.appendChild(style);`,
-        "    }",
-        "})();",
-    ].join("\n");
-};
-
-// ---- Compilation ----
-
-const tsTranspiler = new Bun.Transpiler({ loader: "ts" });
-
-const prepareSvelteRunesSourceForDev = (modulePath: string, source: string): string => {
-    if (!modulePath.endsWith(".svelte.ts")) return source;
-    return tsTranspiler.transformSync(source);
-};
-
-const compileSvelteForDev = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
-    const source = await loadRequiredText(join(rootDir, modulePath));
-    if (!source.ok) {
-        return source;
-    }
-
-    return Promise.resolve()
-        .then(() =>
-            compile(source.value, {
-                dev: true,
-                filename: modulePath,
-                generate: "client",
-            }),
-        )
-        .then(
-            ({ css, js }) => {
-                const contents = js.code + createCssInjection(modulePath, css?.code);
-                return rewriteBareImportsForDev(contents, join(rootDir, modulePath)).then((rewritten: Result<string>) => {
-                    if (!rewritten.ok) {
-                        return rewritten;
-                    }
-
-                    if (shouldLog) {
-                        logRecompiledAsset(modulePath, rewritten.value);
-                    }
-
-                    return ok(rewritten.value);
-                });
-            },
-            (error) => err(`Failed to compile ${modulePath}: ${getErrorMessage(error)}`),
-        );
-};
-
-const transpileTypeScriptForDev = async (
-    rootDir: string,
-    modulePath: string,
-    shouldLog = false,
-): Promise<Result<string>> => {
-    const source = await loadRequiredText(join(rootDir, modulePath));
-    if (!source.ok) {
-        return source;
-    }
-
-    return Promise.resolve()
-        .then(() => {
-            const transformed = tsTranspiler.transformSync(source.value);
-            return rewriteBareImportsForDev(transformed, join(rootDir, modulePath)).then((rewritten: Result<string>) => {
-                if (!rewritten.ok) {
-                    return rewritten;
-                }
-
-                if (shouldLog) {
-                    logRecompiledAsset(modulePath, rewritten.value);
-                }
-
-                return ok(rewritten.value);
-            });
-        })
-        .catch((error: unknown) => err(`Failed to transpile ${modulePath}: ${getErrorMessage(error)}`));
-};
-
-const compileSvelteRunesForDev = async (
-    rootDir: string,
-    modulePath: string,
-    shouldLog = false,
-): Promise<Result<string>> => {
-    const source = await loadRequiredText(join(rootDir, modulePath));
-    if (!source.ok) {
-        return source;
-    }
-
-    return Promise.resolve()
-        .then(() => {
-            const compiled = compileModule(prepareSvelteRunesSourceForDev(modulePath, source.value), {
-                filename: modulePath,
-            });
-            return rewriteBareImportsForDev(compiled.js.code, join(rootDir, modulePath)).then((rewritten: Result<string>) => {
-                if (!rewritten.ok) {
-                    return rewritten;
-                }
-
-                if (shouldLog) {
-                    logRecompiledAsset(modulePath, rewritten.value);
-                }
-
-                return ok(rewritten.value);
-            });
-        })
-        .catch((error: unknown) => err(`Failed to compile ${modulePath}: ${getErrorMessage(error)}`));
-};
-
 // ---- Module loading ----
 
 const isCompilableDevModule = (filePath: string): boolean => isSupportedLocalSourceModule(filePath);
@@ -241,38 +121,80 @@ const getDevModuleMtime = (rootDir: string, modulePath: string): Result<number> 
     }
 };
 
-const loadUncachedDevModule = async (rootDir: string, modulePath: string, shouldLog = false): Promise<Result<string>> => {
-    if (isSupportedSvelteSourceModule(modulePath)) {
-        return compileSvelteForDev(rootDir, modulePath, shouldLog);
-    }
+const buildDevModule = async (
+    rootDir: string,
+    modulePath: string,
+    mountId: string,
+    shouldLog = false,
+): Promise<Result<string>> => {
+    const modulePathOnDisk = join(rootDir, modulePath);
 
-    if (isSupportedSvelteRunesSourceModule(modulePath)) {
-        return compileSvelteRunesForDev(rootDir, modulePath, shouldLog);
-    }
-
-    if (isSupportedJavaScriptSourceModule(modulePath)) {
-        const source = await loadRequiredText(join(rootDir, modulePath));
-        if (!source.ok) {
-            return source;
+    try {
+        const bundle = await Bun.build({
+            entrypoints: [modulePathOnDisk],
+            external: ["svelte", "svelte/*", "esm-env"],
+            format: "esm",
+            plugins: [createMountTargetPlugin(mountId), createSvelteBunPlugin({ mode: "dev" })],
+            splitting: false,
+            target: "browser",
+            write: false,
+        } as BuildConfig);
+        if (!bundle.success) {
+            return err(formatBuildLogs(bundle.logs));
         }
 
-        const rewritten = await rewriteBareImportsForDev(source.value, join(rootDir, modulePath));
-        if (!rewritten.ok) {
-            return rewritten;
+        const entryOutput = bundle.outputs.find((output) => output.kind === "entry-point") ?? bundle.outputs[0];
+        if (entryOutput === undefined) {
+            return err(`Bun.build succeeded but emitted no JavaScript output for ${modulePath}.`);
         }
 
+        const contents = await entryOutput.text();
         if (shouldLog) {
-            logRecompiledAsset(modulePath, rewritten.value);
+            logRecompiledAsset(modulePath, contents);
         }
 
-        return ok(rewritten.value);
+        return ok(contents);
+    } catch (error) {
+        return err(`Failed to bundle ${modulePath}: ${getErrorMessage(error)}`);
     }
+};
 
-    if (isSupportedTypeScriptSourceModule(modulePath)) {
-        return transpileTypeScriptForDev(rootDir, modulePath, shouldLog);
+const buildDevApp = async (
+    rootDir: string,
+    appComponentPath: string,
+    mountId: string,
+    stageDir: string,
+): Promise<Result<string>> => {
+    const entryPath = join(stageDir, "main.ts");
+    const bootstrapSource = createBootstrapSource(createImportPath(stageDir, appComponentPath), mountId);
+
+    try {
+        await writeFile(entryPath, bootstrapSource, "utf8");
+        const bundle = await Bun.build({
+            entrypoints: [entryPath],
+            format: "esm",
+            plugins: [
+                createSvelteRuntimeAliasPlugin(rootDir),
+                createMountTargetPlugin(mountId),
+                createSvelteBunPlugin({ mode: "dev" }),
+            ],
+            splitting: false,
+            target: "browser",
+            write: false,
+        } as BuildConfig);
+        if (!bundle.success) {
+            return err(formatBuildLogs(bundle.logs));
+        }
+
+        const entryOutput = bundle.outputs.find((output) => output.kind === "entry-point") ?? bundle.outputs[0];
+        if (entryOutput === undefined) {
+            return err("Bun.build succeeded but emitted no JavaScript app entry.");
+        }
+
+        return ok(await entryOutput.text());
+    } catch (error) {
+        return err(`Failed to bundle app entry: ${getErrorMessage(error)}`);
     }
-
-    return err(`Unsupported dev module: ${modulePath}`);
 };
 
 const loadDevModule = async (
@@ -281,6 +203,7 @@ const loadDevModule = async (
     cache: DevCompileCache,
     allowedRoots?: string[],
     shouldLog = false,
+    mountId = "app",
 ): Promise<Result<string>> => {
     if (allowedRoots !== undefined && isCompilableDevModule(modulePath)) {
         const validatedImportGraph = await validateLocalSourceImportGraph(join(rootDir, modulePath), allowedRoots);
@@ -300,7 +223,7 @@ const loadDevModule = async (
         return ok(cached);
     }
 
-    const loaded = await loadUncachedDevModule(rootDir, modulePath, shouldLog);
+    const loaded = await buildDevModule(rootDir, modulePath, mountId, shouldLog);
     if (!loaded.ok) {
         return loaded;
     }
@@ -314,9 +237,10 @@ const compileChangedDevAsset = async (
     modulePath: string,
     cache: DevCompileCache,
     allowedRoots: string[],
+    mountId: string,
 ): Promise<void> => {
-    cache.invalidate(createDevCompileCacheKey(rootDir, modulePath));
-    const compiled = await loadDevModule(rootDir, modulePath, cache, allowedRoots, true);
+    cache.clear();
+    const compiled = await loadDevModule(rootDir, modulePath, cache, allowedRoots, true, mountId);
     if (!compiled.ok) {
         console.error(compiled.error);
     }
@@ -525,7 +449,7 @@ type DevReloadHub<TCache> = {
     cache: TCache;
     emit: (data: string) => void;
     reconfigure: (watchRoots: DevWatchRoot[]) => void;
-    stop: () => void;
+    stop: () => Promise<void>;
     subscribe: (listener: (data: string) => void) => () => void;
 };
 
@@ -634,6 +558,8 @@ const createDevReloadHub = <TCache>(
     const listeners = new Set<(data: string) => void>();
     const recentEvents = new Map<string, number>();
     const watchedDirs = new Set<string>();
+    const pendingTasks = new Set<Promise<void>>();
+    let stopped = false;
     let recursiveWatchRoots = new Set(watchRoots.filter((root) => root.recursive).map((root) => root.path));
     let allowedRoots = Array.from(
         new Set(
@@ -655,12 +581,24 @@ const createDevReloadHub = <TCache>(
         watchedDirs.clear();
     };
 
-    const stop = (): void => {
+    const trackTask = (task: Promise<void>, context: string): void => {
+        const settledTask = task.catch((error: unknown) => {
+            reportDevWatcherIssue(context, error);
+        });
+        pendingTasks.add(settledTask);
+        void settledTask.then(() => pendingTasks.delete(settledTask));
+    };
+
+    const stop = async (): Promise<void> => {
+        stopped = true;
         stopWatchers();
         listeners.clear();
+        await Promise.all(Array.from(pendingTasks));
     };
 
     const notify = (data: string): void => {
+        if (stopped) return;
+
         for (const listener of listeners) {
             listener(data);
         }
@@ -687,14 +625,16 @@ const createDevReloadHub = <TCache>(
     };
 
     const handleWatchEvent = (dir: string, filename: string, recursive: boolean) => {
+        if (stopped) return;
+
         const modulePath = join(dir, filename);
         const fileStatus = getFileStatus(modulePath);
         const target = classifyDevWatchTarget({ eventPath: modulePath, fileStatus, filename, watchDir: dir });
 
         if (target.kind === "config") {
-            void Promise.resolve(onConfigFileChange?.()).catch((error: unknown) => {
-                console.error(getErrorMessage(error));
-            });
+            if (onConfigFileChange !== undefined) {
+                trackTask(Promise.resolve(onConfigFileChange()), `config reload for ${modulePath}`);
+            }
             return;
         }
 
@@ -707,10 +647,11 @@ const createDevReloadHub = <TCache>(
 
         if (target.kind !== "module") return;
 
-        if (!shouldProcessDevWatchEvent(recentEvents, target.modulePath)) return;
+        const rootRelativeModulePath = normalizeModulePath(relative(watchDir, modulePath));
+        if (!shouldProcessDevWatchEvent(recentEvents, rootRelativeModulePath)) return;
 
         notify("reload");
-        void compileChangedModule(target.modulePath, allowedRoots);
+        trackTask(compileChangedModule(rootRelativeModulePath, allowedRoots), `compile ${modulePath}`);
     };
 
     const watchDirectory = (dir: string, recursive: boolean) => {
@@ -719,6 +660,8 @@ const createDevReloadHub = <TCache>(
         watchedDirs.add(dir);
         try {
             const watcher = watch(dir, (_eventType: unknown, filename: string | null) => {
+                if (stopped) return;
+
                 if (typeof filename !== "string" || filename.length === 0) {
                     notify("reload");
                     return;
@@ -748,6 +691,8 @@ const createDevReloadHub = <TCache>(
     };
 
     const reconfigure = (nextWatchRoots: DevWatchRoot[]): void => {
+        if (stopped) return;
+
         stopWatchers();
         recentEvents.clear();
 
@@ -950,188 +895,8 @@ export const DEV_SPECIAL_IMPORTS = {
     "svelte/internal": "/_node_modules/svelte/src/internal/index.js",
     "svelte/internal/client": "/_node_modules/svelte/src/internal/client/index.js",
     "svelte/internal/disclose-version": "/_node_modules/svelte/src/internal/disclose-version.js",
+    "svelte/internal/flags/legacy": "/_node_modules/svelte/src/internal/flags/legacy.js",
 } as const;
-
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const toRelativeImportSpecifier = (importerPath: string, resolvedPath: string): string => {
-    const relativePath = normalizeModulePath(relative(dirname(importerPath), resolvedPath));
-    return relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
-};
-
-const isBareImportSpecifier = (specifier: string): boolean =>
-    !specifier.startsWith(".") &&
-    !specifier.startsWith("/") &&
-    !specifier.startsWith("data:") &&
-    !specifier.startsWith("blob:") &&
-    !specifier.startsWith("http:") &&
-    !specifier.startsWith("https:");
-
-const isPackageImportSpecifier = (specifier: string): boolean => specifier.startsWith("#");
-
-const isNodeModulesPackageRoot = (packageRoot: string): boolean =>
-    normalizeModulePath(packageRoot).split("/").includes("node_modules");
-
-const getPackageNameFromSpecifier = (specifier: string): string => {
-    const segments = specifier.split("/");
-    if (segments[0]?.startsWith("@")) {
-        return segments.slice(0, 2).join("/");
-    }
-
-    return segments[0] ?? "";
-};
-
-const resolveImporterPackageForDev = async (
-    importerPath: string,
-): Promise<Result<{ packageName: string; packageRoot: string }>> => {
-    let currentDir = dirname(importerPath);
-
-    while (true) {
-        const packageJsonPath = join(currentDir, "package.json");
-        const packageJsonFile = Bun.file(packageJsonPath);
-
-        if (await packageJsonFile.exists()) {
-            let packageJson: unknown;
-            try {
-                packageJson = await packageJsonFile.json();
-            } catch (error) {
-                return err(`Failed to read ${packageJsonPath}: ${getErrorMessage(error)}`);
-            }
-
-            const packageName =
-                typeof packageJson === "object" && packageJson !== null && "name" in packageJson ? packageJson.name : undefined;
-            if (typeof packageName !== "string" || packageName.length === 0) {
-                return err(`Missing package name in ${packageJsonPath}`);
-            }
-
-            return ok({ packageName, packageRoot: currentDir });
-        }
-
-        const parentDir = dirname(currentDir);
-        if (parentDir === currentDir) {
-            return err(`Failed to resolve package root for ${importerPath}`);
-        }
-
-        currentDir = parentDir;
-    }
-};
-
-const replaceImportSpecifier = (source: string, specifier: string, replacement: string): string => {
-    const escapedSpecifier = escapeRegExp(specifier);
-    const dynamicImportPattern = new RegExp(`\\bimport\\s*\\(\\s*(['"])${escapedSpecifier}\\1\\s*\\)`, "g");
-    const importFromPattern = new RegExp(`\\bfrom\\s+(['"])${escapedSpecifier}\\1`, "g");
-    const sideEffectImportPattern = new RegExp(`\\bimport\\s+(['"])${escapedSpecifier}\\1`, "g");
-
-    return source
-        .replace(dynamicImportPattern, (_, quote: string) => `import(${quote}${replacement}${quote})`)
-        .replace(importFromPattern, (_, quote: string) => `from ${quote}${replacement}${quote}`)
-        .replace(sideEffectImportPattern, (_, quote: string) => `import ${quote}${replacement}${quote}`);
-};
-
-const resolveBareImportPathForDev = async (specifier: string, importerPath: string): Promise<Result<string>> => {
-    const specialImport = DEV_SPECIAL_IMPORTS[specifier as keyof typeof DEV_SPECIAL_IMPORTS];
-    if (specialImport !== undefined) {
-        return ok(specialImport);
-    }
-
-    if (!isBareImportSpecifier(specifier)) {
-        return ok(specifier);
-    }
-
-    const packageName = getPackageNameFromSpecifier(specifier);
-    if (packageName.length === 0) {
-        return err(`Unsupported bare import in ${importerPath}: ${specifier}`);
-    }
-
-    const importerUrl = pathToFileURL(importerPath).href;
-
-    if (isPackageImportSpecifier(specifier)) {
-        const importerPackage = await resolveImporterPackageForDev(importerPath);
-        if (!importerPackage.ok) {
-            return importerPackage;
-        }
-
-        if (!isNodeModulesPackageRoot(importerPackage.value.packageRoot)) {
-            return err(`App-local package imports are not supported in dev: ${specifier} from ${importerPath}`);
-        }
-
-        return Promise.resolve()
-            .then(() => import.meta.resolve(specifier, importerUrl))
-            .then(
-                (resolvedUrl) => {
-                    if (!resolvedUrl.startsWith("file://")) {
-                        return err(`Unsupported resolved import for ${specifier}: ${resolvedUrl}`);
-                    }
-
-                    const resolvedPath = fileURLToPath(resolvedUrl);
-                    const relativePath = relative(importerPackage.value.packageRoot, resolvedPath);
-                    if (relativePath.length === 0 || relativePath.startsWith("..") || isAbsolute(relativePath)) {
-                        return err(`Resolved import escaped package root for ${specifier}: ${resolvedPath}`);
-                    }
-
-                    if (!isNodeModulesPackageRoot(importerPackage.value.packageRoot)) {
-                        return ok(toRelativeImportSpecifier(importerPath, resolvedPath));
-                    }
-
-                    return ok(
-                        `/_node_modules/${normalizeModulePath(importerPackage.value.packageName)}/${normalizeModulePath(relativePath)}`,
-                    );
-                },
-                (error) => err(`Failed to resolve ${specifier} from ${importerPath}: ${getErrorMessage(error)}`),
-            );
-    }
-
-    return Promise.all([
-        import.meta.resolve(specifier, importerUrl),
-        import.meta.resolve(`${packageName}/package.json`, importerUrl),
-    ]).then(
-        ([resolvedUrl, packageJsonUrl]) => {
-            if (!resolvedUrl.startsWith("file://") || !packageJsonUrl.startsWith("file://")) {
-                return err(`Unsupported resolved import for ${specifier}: ${resolvedUrl}`);
-            }
-
-            const resolvedPath = fileURLToPath(resolvedUrl);
-            const packageRoot = dirname(fileURLToPath(packageJsonUrl));
-            const relativePath = relative(packageRoot, resolvedPath);
-            if (relativePath.length === 0 || relativePath.startsWith("..") || isAbsolute(relativePath)) {
-                return err(`Resolved import escaped package root for ${specifier}: ${resolvedPath}`);
-            }
-
-            return ok(`/_node_modules/${normalizeModulePath(packageName)}/${normalizeModulePath(relativePath)}`);
-        },
-        (error) => err(`Failed to resolve ${specifier} from ${importerPath}: ${getErrorMessage(error)}`),
-    );
-};
-
-const jsImportScanner = new Bun.Transpiler({ loader: "js" });
-
-const rewriteBareImportsForDev = async (source: string, importerPath: string): Promise<Result<string>> => {
-    const specifiers = Array.from(
-        new Set(
-            jsImportScanner
-                .scanImports(source)
-                .map((record) => record.path)
-                .filter(
-                    (specifier) =>
-                        DEV_SPECIAL_IMPORTS[specifier as keyof typeof DEV_SPECIAL_IMPORTS] !== undefined ||
-                        isBareImportSpecifier(specifier),
-                ),
-        ),
-    );
-
-    let rewritten = source;
-
-    for (const specifier of specifiers) {
-        const resolved = await resolveBareImportPathForDev(specifier, importerPath);
-        if (!resolved.ok) {
-            return resolved;
-        }
-
-        rewritten = replaceImportSpecifier(rewritten, specifier, resolved.value);
-    }
-
-    return ok(rewritten);
-};
 
 export type DevServerHandle = {
     port: number;
@@ -1297,6 +1062,16 @@ const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevSe
         return nodeModulesRoot;
     }
 
+    let stageDir: string;
+    try {
+        stageDir = await mkdtemp(join(tmpdir(), "svelte-lib-dev-"));
+    } catch (error) {
+        return err(`Failed to create dev build staging directory: ${getErrorMessage(error)}`);
+    }
+    const cleanupStageDir = async (): Promise<void> => {
+        await rm(stageDir, { force: true, recursive: true }).catch(() => undefined);
+    };
+
     const importMap = createImportMap();
     const compileCache = createDevCompileCache();
     let reloadHub: DevReloadHub<DevCompileCache>;
@@ -1314,6 +1089,7 @@ const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevSe
         }
 
         currentState = nextState.value;
+        compileCache.clear();
         reloadHub.reconfigure(nextState.value.watchRoots);
         reloadHub.emit("reload");
     };
@@ -1321,7 +1097,8 @@ const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevSe
         rootDir,
         currentState.watchRoots,
         compileCache,
-        (modulePath, allowedRoots) => compileChangedDevAsset(rootDir, modulePath, compileCache, allowedRoots),
+        (modulePath, allowedRoots) =>
+            compileChangedDevAsset(rootDir, modulePath, compileCache, allowedRoots, currentState.mountId),
         reloadConfig,
     );
 
@@ -1341,7 +1118,14 @@ const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevSe
         }
 
         const allowedRoots = [realpathSync(sourceRoot)];
-        const source = await loadDevModule(rootDir, resolvedSourcePath.value.modulePath, cache, allowedRoots);
+        const source = await loadDevModule(
+            rootDir,
+            resolvedSourcePath.value.modulePath,
+            cache,
+            allowedRoots,
+            false,
+            currentState.mountId,
+        );
         if (!source.ok) {
             return createDevModuleErrorResponse(source.error);
         }
@@ -1369,12 +1153,14 @@ const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevSe
             }
 
             if (url.pathname === "/main.ts") {
-                return new Response(
-                    createBootstrapSource(createImportPath(rootDir, currentState.appComponentPath), currentState.mountId),
-                    {
-                        headers: { "Content-Type": "application/javascript" },
-                    },
-                );
+                const entry = await buildDevApp(rootDir, currentState.appComponentPath, currentState.mountId, stageDir);
+                if (!entry.ok) {
+                    return createDevModuleErrorResponse(entry.error);
+                }
+
+                return new Response(entry.value, {
+                    headers: { "Content-Type": "application/javascript" },
+                });
             }
 
             if (url.pathname === DEV_LIVE_RELOAD_PATH) {
@@ -1414,11 +1200,17 @@ const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevSe
                     return new Response("Not Found", { status: 404 });
                 }
 
-                if (isCompilableDevModule(resolvedNodeModulePath.value.modulePath)) {
+                if (
+                    isSupportedSvelteSourceModule(resolvedNodeModulePath.value.modulePath) ||
+                    isSupportedSvelteRunesSourceModule(resolvedNodeModulePath.value.modulePath)
+                ) {
                     const compiled = await loadDevModule(
                         resolvedNodeModulePath.value.packageRoot,
                         resolvedNodeModulePath.value.modulePath,
                         reloadHub.cache,
+                        undefined,
+                        false,
+                        currentState.mountId,
                     );
                     if (!compiled.ok) {
                         return createDevModuleErrorResponse(compiled.error);
@@ -1458,28 +1250,308 @@ const runConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevSe
     );
 
     if (!started.ok) {
-        reloadHub.stop();
+        await reloadHub.stop();
+        await cleanupStageDir();
         return started;
     }
 
     return ok({
         port: started.value.port,
         stop: async () => {
-            reloadHub.stop();
+            await reloadHub.stop();
             await started.value.stop();
+            await cleanupStageDir();
         },
     });
 };
 
+type NativeDevInstance = {
+    config: BuildSvelteOptions;
+    server: NativeDevServerHandle;
+    state: DevRuntimeState;
+};
+
+const createNativeDevInstance = async (
+    config: BuildSvelteOptions,
+    state: DevRuntimeState,
+    packageRoot: string,
+    port: number,
+    rootDir: string,
+): Promise<Result<NativeDevInstance>> => {
+    const workspace = await createNativeDevWorkspace({
+        appComponentPath: state.appComponentPath,
+        appTitle: state.appTitle,
+        assets: state.assetsDirs.map(({ dirName, physicalPath }) => ({ dirName, physicalPath })),
+        mountId: state.mountId,
+        packageRoot,
+        rootDir,
+        sourceRoot: state.sourceRoot,
+    });
+    if (!workspace.ok) {
+        return workspace;
+    }
+
+    const server = await startNativeDevServer(workspace.value, port);
+    if (!server.ok) {
+        await workspace.value.cleanup();
+        return server;
+    }
+
+    return ok({ config, server: server.value, state });
+};
+
+const getNativeRuntimeStateSignature = (state: DevRuntimeState): string =>
+    JSON.stringify({
+        appComponentPath: state.appComponentPath,
+        appTitle: state.appTitle,
+        assetsDirs: state.assetsDirs,
+        mountId: state.mountId,
+        sourceRoot: state.sourceRoot,
+    });
+
+const createNativeRuntimeWatcher = (
+    rootDir: string,
+    assetsDirs: ResolvedAssetsDir[],
+    onChange: () => void,
+): (() => void) => {
+    const watchers: Array<{ close: () => void }> = [];
+    const watchedPaths = new Set<string>();
+
+    const watchPath = (path: string, context: string): void => {
+        if (watchedPaths.has(path)) return;
+        watchedPaths.add(path);
+
+        try {
+            const watcher = watch(path, (_eventType: unknown, _filename: string | null) => {
+                onChange();
+            });
+            attachDevWatcherErrorHandler(watcher, context);
+            watchers.push(watcher);
+        } catch (error) {
+            reportDevWatcherIssue(`watch setup for ${path}`, error);
+        }
+    };
+
+    watchPath(rootDir, "native runtime root watcher");
+    assetsDirs.forEach((assetsDir) => watchPath(assetsDir.physicalPath, "native asset watcher"));
+
+    return () => {
+        watchers.forEach((watcher) => watcher.close());
+        watchers.length = 0;
+    };
+};
+
+const NATIVE_RUNTIME_RESTART_DEBOUNCE_MS = 100;
+const NATIVE_RUNTIME_MAX_AUTO_RESTARTS = 3;
+const NATIVE_RUNTIME_STABLE_MS = 1000;
+
+const runNativeConfiguredDevServer = async (cwd = process.cwd()): Promise<Result<DevServerHandle>> => {
+    const config = await loadSvelteConfig(cwd);
+    if (!config.ok) {
+        return config;
+    }
+
+    const rootDir = config.value.rootDir ?? cwd;
+    const initialState = await deriveDevRuntimeState(config.value, rootDir);
+    if (!initialState.ok) {
+        return initialState;
+    }
+
+    const packageRoot = dirname(dirname(import.meta.dir));
+    const requestedPort = resolveDevPort(config.value);
+    const initialInstance = await createNativeDevInstance(
+        config.value,
+        initialState.value,
+        packageRoot,
+        requestedPort,
+        rootDir,
+    );
+    if (!initialInstance.ok) {
+        return initialInstance;
+    }
+
+    let currentInstance = initialInstance.value;
+    let stopped = false;
+    let restartTimer: ReturnType<typeof setTimeout> | undefined;
+    let pendingRestart: Promise<void> = Promise.resolve();
+    let stopWatcher = (): void => undefined;
+    let stableRuntimeTimer: ReturnType<typeof setTimeout> | undefined;
+    let autoRestartAttempts = 0;
+    let restartForce = false;
+    const exitSupervisor = createNativeDevServerExitSupervisor();
+
+    const markNativeRuntimeStable = (instance: NativeDevInstance): void => {
+        if (stableRuntimeTimer !== undefined) clearTimeout(stableRuntimeTimer);
+        stableRuntimeTimer = setTimeout(() => {
+            stableRuntimeTimer = undefined;
+            if (stopped || currentInstance !== instance) return;
+            autoRestartAttempts = 0;
+        }, NATIVE_RUNTIME_STABLE_MS);
+    };
+
+    const handleUnexpectedNativeExit = (server: NativeDevServerHandle, exitCode: number): void => {
+        if (stopped || currentInstance.server !== server) return;
+        if (stableRuntimeTimer !== undefined) {
+            clearTimeout(stableRuntimeTimer);
+            stableRuntimeTimer = undefined;
+        }
+        if (autoRestartAttempts >= NATIVE_RUNTIME_MAX_AUTO_RESTARTS) {
+            console.error(
+                `[svelte-dev] Native runtime exited with code ${exitCode}; automatic restart limit reached.`,
+            );
+            return;
+        }
+
+        autoRestartAttempts += 1;
+        console.error(
+            `[svelte-dev] Native runtime exited with code ${exitCode}; restarting (${autoRestartAttempts}/${NATIVE_RUNTIME_MAX_AUTO_RESTARTS}).`,
+        );
+        scheduleRestart(true);
+    };
+
+    const observeNativeRuntime = (instance: NativeDevInstance): void => {
+        exitSupervisor.observe(instance.server, handleUnexpectedNativeExit);
+        markNativeRuntimeStable(instance);
+    };
+
+    const restartNativeRuntime = async (forceRestart: boolean): Promise<void> => {
+        if (stopped) return;
+
+        const nextConfig = await loadSvelteConfig(rootDir);
+        if (!nextConfig.ok) {
+            console.error(nextConfig.error);
+            return;
+        }
+
+        const nextState = await deriveDevRuntimeState(nextConfig.value, rootDir);
+        if (!nextState.ok) {
+            console.error(nextState.error);
+            return;
+        }
+
+        if (resolveDevPort(nextConfig.value) !== requestedPort) {
+            console.error(
+                `[svelte-dev] Native dev port changes require restarting svelte-dev; keeping port ${currentInstance.server.port}.`,
+            );
+            return;
+        }
+
+        const runtimeStateChanged =
+            getNativeRuntimeStateSignature(nextState.value) !== getNativeRuntimeStateSignature(currentInstance.state);
+        if (!forceRestart && !runtimeStateChanged) {
+            return;
+        }
+
+        const previousInstance = currentInstance;
+        const nextWorkspace = await createNativeDevWorkspace({
+            appComponentPath: nextState.value.appComponentPath,
+            appTitle: nextState.value.appTitle,
+            assets: nextState.value.assetsDirs.map(({ dirName, physicalPath }) => ({ dirName, physicalPath })),
+            mountId: nextState.value.mountId,
+            packageRoot,
+            rootDir,
+            sourceRoot: nextState.value.sourceRoot,
+        });
+        if (!nextWorkspace.ok) {
+            console.error(nextWorkspace.error);
+            return;
+        }
+
+        stopWatcher();
+        try {
+            exitSupervisor.expectExit(previousInstance.server);
+            await previousInstance.server.stop();
+        } catch (error) {
+            await nextWorkspace.value.cleanup();
+            stopWatcher = createNativeRuntimeWatcher(rootDir, currentInstance.state.assetsDirs, scheduleRestart);
+            throw error;
+        }
+        if (stopped) {
+            await nextWorkspace.value.cleanup();
+            return;
+        }
+
+        const nextServer = await startNativeDevServer(nextWorkspace.value, previousInstance.server.port);
+        if (!nextServer.ok) {
+            await nextWorkspace.value.cleanup();
+            console.error(nextServer.error);
+
+            const restored = await createNativeDevInstance(
+                previousInstance.config,
+                previousInstance.state,
+                packageRoot,
+                previousInstance.server.port,
+                rootDir,
+            );
+            if (restored.ok) {
+                currentInstance = restored.value;
+                observeNativeRuntime(currentInstance);
+                stopWatcher = createNativeRuntimeWatcher(rootDir, currentInstance.state.assetsDirs, scheduleRestart);
+            } else {
+                console.error(restored.error);
+            }
+            return;
+        }
+
+        currentInstance = {
+            config: nextConfig.value,
+            server: nextServer.value,
+            state: nextState.value,
+        };
+        if (runtimeStateChanged) autoRestartAttempts = 0;
+        observeNativeRuntime(currentInstance);
+        stopWatcher = createNativeRuntimeWatcher(rootDir, currentInstance.state.assetsDirs, scheduleRestart);
+    };
+
+    const scheduleRestart = (forceRestart = false): void => {
+        if (stopped) return;
+        restartForce ||= forceRestart;
+        if (restartTimer !== undefined) clearTimeout(restartTimer);
+
+        restartTimer = setTimeout(() => {
+            restartTimer = undefined;
+            const shouldForceRestart = restartForce;
+            restartForce = false;
+            pendingRestart = pendingRestart
+                .then(() => restartNativeRuntime(shouldForceRestart))
+                .catch((error: unknown) => {
+                    console.error(`[svelte-dev] Native runtime restart failed: ${getErrorMessage(error)}`);
+                });
+        }, NATIVE_RUNTIME_RESTART_DEBOUNCE_MS);
+    };
+
+    stopWatcher = createNativeRuntimeWatcher(rootDir, currentInstance.state.assetsDirs, scheduleRestart);
+    observeNativeRuntime(currentInstance);
+
+    return ok({
+        port: currentInstance.server.port,
+        stop: async () => {
+            if (stopped) return;
+            stopped = true;
+            if (restartTimer !== undefined) clearTimeout(restartTimer);
+            if (stableRuntimeTimer !== undefined) clearTimeout(stableRuntimeTimer);
+            stopWatcher();
+            await pendingRestart;
+            exitSupervisor.expectExit(currentInstance.server);
+            await currentInstance.server.stop();
+        },
+    });
+};
+
+const runDevServer = async (cwd = process.cwd()): Promise<Result<DevServerHandle>> => {
+    const native = await runNativeConfiguredDevServer(cwd);
+    return native.ok ? native : runConfiguredDevServer(cwd);
+};
+
 export const serve = async ({
   cwd = process.cwd(),
-}: DevCliDependencies = {}): Promise<Result<DevServerHandle>> => runConfiguredDevServer(cwd);
+}: DevCliDependencies = {}): Promise<Result<DevServerHandle>> => runDevServer(cwd);
 
 const runDevCli = async ({
     cwd = process.cwd(),
     error = console.error,
     log = console.log,
-    run = runConfiguredDevServer,
+    run = runDevServer,
 }: DevCliDependencies = {}): Promise<number> => {
     const result = await run(cwd);
     if (!result.ok) {

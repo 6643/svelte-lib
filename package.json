@@ -8,6 +8,7 @@
         "./use": "./src/ui/_.ts",
         "./route": "./src/route/_.ts",
         "./builder": "./src/builder/_.ts",
+        "./runtime": "./src/builder/runtime.ts",
         "./package.json": "./package.json",
         "./build": "./src/builder/build.ts",
         "./dev": "./src/builder/dev.ts"
@@ -24,6 +25,7 @@
     "sideEffects": false,
     "type": "module",
     "scripts": {
+        "test:browser:native-hmr": "bun scripts/native-hmr-browser-gate.ts",
         "test": "bun test --conditions=browser",
         "typecheck": "svelte-check --tsconfig ./tsconfig.json"
     },

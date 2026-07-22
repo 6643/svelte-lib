@@ -3,10 +3,16 @@
     "private": true,
     "type": "module",
     "dependencies": {
+        "svelte": "latest",
         "svelte-lib": "file:.."
+    },
+    "devDependencies": {
+        "svelte-check": "latest",
+        "typescript": "latest"
     },
     "scripts": {
         "build": "bun svelte-build",
+        "check": "bun x svelte-check --tsconfig ./tsconfig.json",
         "dev": "bun svelte-dev"
     }
 }

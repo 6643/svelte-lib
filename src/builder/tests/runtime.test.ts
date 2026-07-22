@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { JSDOM } from "jsdom";
 
 import { createRuntimeModuleSource } from "../build-internals";
+import { getMountTarget, mountId as defaultMountId } from "../runtime";
 
 let runtimeModuleVersion = 0;
 
@@ -20,6 +21,19 @@ const loadRuntimeModule = async (mountId: string): Promise<{
 };
 
 describe("runtime", () => {
+  it("exposes the default public mount target helper", () => {
+    const dom = new JSDOM("<!doctype html><html><body></body></html>");
+
+    try {
+      const target = getMountTarget(dom.window.document);
+      expect(defaultMountId).toBe("app");
+      expect(target.id).toBe("app");
+      expect(target.parentElement).toBe(dom.window.document.body);
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it("should generate runtime source with default mount id", () => {
     const source = createRuntimeModuleSource("app");
     expect(source).toContain('"app"');
@@ -35,9 +49,8 @@ describe("runtime", () => {
     expect(source).toContain('"root"');
   });
 
-  it("should trim whitespace from mount id", () => {
-    const source = createRuntimeModuleSource("  app  ");
-    expect(source).toContain('"app"');
+  it("should reject whitespace-padded mount ids", () => {
+    expect(() => createRuntimeModuleSource("  app  ")).toThrow();
   });
 
   it("should throw for invalid mount id containing spaces", () => {
@@ -46,6 +59,10 @@ describe("runtime", () => {
 
   it("should throw for mount id starting with #", () => {
     expect(() => createRuntimeModuleSource("#app")).toThrow();
+  });
+
+  it("should throw for an empty mount id after trimming", () => {
+    expect(() => createRuntimeModuleSource("  ")).toThrow();
   });
 
   it("reuses an existing configured target", async () => {

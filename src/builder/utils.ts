@@ -40,6 +40,9 @@ export const getBuildErrorMessage = (error: unknown): string => {
 
 export const normalizeModulePath = (value: string): string => value.replace(/\\/g, "/");
 
+export const isValidMountIdToken = (value: string): boolean =>
+    value.length > 0 && value.trim() === value && !/\s/u.test(value) && !value.startsWith("#");
+
 export const resolveConfiguredPath = (rootDir: string, value: string | undefined, fallback: string): string => {
     const target = value ?? fallback;
     return isAbsolute(target) ? target : join(rootDir, target);

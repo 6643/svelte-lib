@@ -38,9 +38,10 @@ dev 源码边界：
 - `appComponent` 若是符号链接, 它解析后的目标仍必须留在对应的 app 源码树内
 - 本地源码导入必须留在 app 源码树内, 且当前只支持上述 `.ts`、`.js`、`.mjs`、`.svelte` 模块; 不支持 `file://`、绝对文件路径、其他本地源码扩展或 `import(expr)` 这类无法静态校验的直接文件导入
 
-编译器与 Bun plugin:
+编译器、运行时与 Bun plugin:
 
-- `src/builder/svelte-plugin.ts` 提供共享的 `createSvelteBunPlugin`, 通过 Bun bundler 的 `onLoad` 编译 `.svelte`、`.svelte.ts` 和 `.svelte.js`
+- `svelte-lib/builder` 提供共享的 `createSvelteBunPlugin` 和 `createMountTargetPlugin`; 前者通过 Bun bundler 的 `onLoad` 编译 `.svelte`、`.svelte.ts` 和 `.svelte.js`, 后者为 `svelte-lib/runtime` 注入当前 builder 配置的 `mountId`
+- `svelte-lib/runtime` 提供 `mountId` 和 `getMountTarget(scope?)`; builder 的 build/dev/native pipeline 会自动把 `mountId` 注入该 runtime module, 自定义 `Bun.build` pipeline 需要显式加入 `createMountTargetPlugin(mountId)`
 - `svelte-build` 使用 `Bun.build({ plugins })` 完成生产编译, CSS 仍由 builder 收集、压缩并写入 hash 文件
 - `svelte-dev` 默认启动 Bun 官方 fullstack dev server; `/main.ts`、plugin shim 和 `bunfig.toml` 只写入系统临时 workspace, child 以 consumer 项目根作为 watcher cwd, 不修改 consumer 的 `bunfig.toml`
 - native server 通过 `Bun.serve({ development: { hmr: true } })` 提供官方 HMR, 同时保留受控的 `/main.ts`、app source、`/_node_modules/*` 和静态资源路由; native child 启动失败时回退到现有 SSE full-page reload server
@@ -64,7 +65,7 @@ dev 源码边界：
 | `sourcemap` | `false` | 生产构建是否输出内联 sourcemap |
 | `stripSvelteDiagnostics` | `true` | 是否裁剪 Svelte 运行时详细诊断文案, 默认保留短错误码/警告码 |
 
-`mountId` 始终是普通 DOM ID token, 不是 CSS selector. DOM 创建和组件挂载属于浏览器运行时入口; Bun 编译插件只在 `setup`/`onLoad` 阶段编译资源, 不会在编译阶段访问页面 DOM.
+`mountId` 始终是普通 DOM ID token, 不是 CSS selector. DOM 创建和组件挂载属于浏览器运行时入口; Bun 编译插件只在 `setup`/`onLoad` 阶段生成运行时模块, 不会在编译阶段访问页面 DOM.
 
 `appComponent` 是可选配置:
 

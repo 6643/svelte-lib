@@ -2,11 +2,11 @@
     import Counter from "./Counter.svelte";
 </script>
 
-<main id="app">
+<section class="app-shell">
     <h1>Demo App</h1>
-    <p>This is a demo project using <strong>svelte-builder</strong>.</p>
+    <p>This is a demo project using <strong>svelte-lib</strong>.</p>
     <Counter />
-</main>
+</section>
 
 <style>
     :global(body) {

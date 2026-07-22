@@ -16,6 +16,11 @@ test("builder aggregate export omits internal config helpers", () => {
     expect("validateResolvedAppComponentPath" in builderModule).toBe(false);
 });
 
+test("builder aggregate exports the shared Bun plugins", () => {
+    expect(typeof (builderModule as Record<string, unknown>).createSvelteBunPlugin).toBe("function");
+    expect(typeof (builderModule as Record<string, unknown>).createMountTargetPlugin).toBe("function");
+});
+
 test("build subpath export omits internal parsing and validation helpers", () => {
     expect("findUnsupportedDynamicImportExpression" in buildModule).toBe(false);
     expect("validateLocalSourceImportGraph" in buildModule).toBe(false);

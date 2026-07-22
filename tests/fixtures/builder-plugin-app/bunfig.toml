@@ -1,0 +1,2 @@
+[serve.static]
+plugins = ["./svelte-runtime-plugin.ts", "./svelte-dev-plugin.ts"]

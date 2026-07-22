@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 
 import { basename, dirname, join, relative, resolve } from "node:path";
 
-import { compile } from "svelte/compiler";
 import type { BuildConfig, BunPlugin } from "bun";
 
 import { copyConfiguredAssets, resolveConfiguredAssetsDirs, type ResolvedAssetsDir } from "./assets";
@@ -15,11 +14,11 @@ import { formatBuildReport } from "./report";
 import {
     createBootstrapSource,
     createProductionEsmEnvPlugin,
-    createSveltePlugin as createSharedSveltePlugin,
     createSvelteRuntimeAliasPlugin,
     validateLocalSourceImportGraph,
     validateSvelteBrowserImportAliases,
 } from "./build-internals";
+import { createMountTargetPlugin, createSvelteBunPlugin } from "./svelte-plugin";
 import {
     ok,
     err,
@@ -29,6 +28,7 @@ import {
     isPathWithinAnyRoot,
     formatBuildLogs,
     getBuildErrorMessage,
+    isValidMountIdToken,
     normalizeModulePath,
     resolveConfiguredPath,
     type Result,
@@ -64,41 +64,6 @@ const createImportPath = (fromDir: string, toPath: string): string => {
     const importPath = normalizeModulePath(relative(fromDir, toPath));
 
     return importPath.startsWith(".") ? importPath : `./${importPath}`;
-};
-
-// Type-only export for editor/type-checker consumers.
-// Build/dev replace this module with a generated runtime module that embeds the configured mount id.
-export declare const mountId: string;
-
-const readRequiredText = async (path: string): Promise<Result<string>> => {
-    const file = Bun.file(path);
-    const exists = await file.exists();
-    if (!exists) return err(`Missing file: ${path}`);
-
-    return file.text().then(
-        (value) => ok(value),
-        (error) => err(`Failed to read ${path}: ${getErrorMessage(error)}`),
-    );
-};
-
-const compileSvelteModule = async (path: string): Promise<Result<{ css: string; js: string }>> => {
-    const source = await readRequiredText(path);
-    if (!source.ok) return source;
-
-    return Promise.resolve()
-        .then(() =>
-            compile(source.value, {
-                css: "external",
-                cssHash: ({ css, hash }) => `_${hash(css)}`,
-                dev: false,
-                filename: path,
-                generate: "client",
-            }),
-        )
-        .then(
-            ({ css, js }) => ok({ css: css?.code ?? "", js: js.code }),
-            (error) => err(`Failed to compile ${path}: ${getErrorMessage(error)}`),
-        );
 };
 
 type HtmlShell = {
@@ -227,13 +192,15 @@ const createHtmlShell = (mountId: string, appTitle = DEFAULT_HTML_SHELL.title): 
 });
 
 const prepareDir = async (path: string): Promise<Result<string>> =>
-    rm(path, { force: true, recursive: true }).then(
-        () => mkdir(path, { recursive: true }),
-        (error) => Promise.reject(error),
-    ).then(
-        () => ok(path),
-        (error) => err(`Failed to create ${path}: ${getErrorMessage(error)}`),
-    );
+    rm(path, { force: true, recursive: true })
+        .then(
+            () => mkdir(path, { recursive: true }),
+            (error) => Promise.reject(error),
+        )
+        .then(
+            () => ok(path),
+            (error) => err(`Failed to create ${path}: ${getErrorMessage(error)}`),
+        );
 
 const writeIndexHtml = async (outDir: string, shell: HtmlShell, jsFile: string, cssFile: string): Promise<Result<string>> => {
     const cssLink = cssFile ? `    <link rel="stylesheet" href="/${cssFile}">\n` : "";
@@ -330,14 +297,10 @@ const validateMountId = (value: unknown, field: string): Result<string> => {
         return err(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected string.`);
     }
     const mountId = value ?? "app";
-    const normalizedMountId = mountId.trim();
-    if (normalizedMountId.length === 0) {
-        return err(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a non-empty id token.`);
-    }
-    if (normalizedMountId !== mountId || /\s/u.test(normalizedMountId) || normalizedMountId.startsWith("#")) {
+    if (!isValidMountIdToken(mountId)) {
         return err(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected a plain id token, not a selector-shaped value.`);
     }
-    return ok(normalizedMountId);
+    return ok(mountId);
 };
 
 const validateAppComponent = (value: unknown, field: string): Result<string> => {
@@ -395,7 +358,8 @@ const buildSvelte = async (options: BuildSvelteOptions = {}): Promise<Result<Bui
             plugins: [
                 createSvelteRuntimeAliasPlugin(ctx.value.rootDir),
                 ctx.value.stripSvelteDiagnostics ? createProductionEsmEnvPlugin() : null,
-                createSharedSveltePlugin(cssByPath, compileSvelteModule),
+                createMountTargetPlugin(ctx.value.mountId),
+                createSvelteBunPlugin({ mode: "build", cssByPath }),
             ].filter((plugin): plugin is BunPlugin => plugin !== null),
             sourcemap: ctx.value.sourcemap ? "inline" : ("none" as BuildConfig["sourcemap"]),
             splitting: true,

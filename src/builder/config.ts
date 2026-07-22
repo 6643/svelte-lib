@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { ok, err, getErrorMessage, isPathWithinRoot, type Result } from "./utils";
+import { err, getErrorMessage, isPathWithinRoot, isValidMountIdToken, ok, type Result } from "./utils";
 
 export const CONFIG_FILE_NAME = "builder.ts";
 const configTranspiler = new Bun.Transpiler({ loader: "ts" });
@@ -113,23 +113,12 @@ const validateMountId = (
     return err(`Invalid ${field} in ${CONFIG_FILE_NAME}: expected string.`);
   }
   const mountId = value ?? "app";
-  const normalizedMountId = mountId.trim();
-  if (normalizedMountId.length === 0) {
-    return err(
-      `Invalid ${field} in ${CONFIG_FILE_NAME}: expected a non-empty id token.`,
-    );
-  }
-  if (normalizedMountId !== mountId) {
+  if (!isValidMountIdToken(mountId)) {
     return err(
       `Invalid ${field} in ${CONFIG_FILE_NAME}: expected a plain id token, not a selector-shaped value.`,
     );
   }
-  if (/\s/u.test(normalizedMountId) || normalizedMountId.startsWith("#")) {
-    return err(
-      `Invalid ${field} in ${CONFIG_FILE_NAME}: expected a plain id token, not a selector-shaped value.`,
-    );
-  }
-  return ok(normalizedMountId);
+  return ok(mountId);
 };
 
 const validateAppComponent = (

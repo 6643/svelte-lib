@@ -39,6 +39,7 @@ test("root package owns builder dependency policy without pretending to be a bui
         "./use": "./src/ui/_.ts",
         "./route": "./src/route/_.ts",
         "./builder": "./src/builder/_.ts",
+        "./runtime": "./src/builder/runtime.ts",
         "./build": "./src/builder/build.ts",
         "./dev": "./src/builder/dev.ts",
         "./package.json": "./package.json",
