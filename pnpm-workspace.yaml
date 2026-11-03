@@ -1,0 +1,19 @@
+packages:
+  - "."
+
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vite-plus: 1.4.0
+
+overrides:
+  vite@*: "catalog:"
+
+allowBuilds:
+  esbuild: true
+
+# vite 被 alias 到 @voidzero-dev/vite-plus-core, 其版本号 (1.4.0) 不满足各插件对 vite 的 semver 区间
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"

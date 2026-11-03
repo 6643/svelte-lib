@@ -1,0 +1,98 @@
+/* 下拉刷新的类名由 useRefresh hook 在运行时切换, 因此是全局样式. */
+
+.use-refresh-host {
+  position: relative;
+  padding-top: var(--pull-height, 0px);
+  transition: padding-top 512ms ease-out;
+
+  --down-duration: 1024ms;
+  --up-duration: 512ms;
+  --threshold-height: 80px;
+}
+
+.use-refresh-host::before,
+.use-refresh-host::after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, var(--accent-color));
+  height: 0;
+  opacity: 0;
+  transform: translateY(0);
+  transition:
+    height 256ms ease-out,
+    opacity 256ms ease-out,
+    transform 0s;
+}
+
+.use-refresh-host::before {
+  left: 0;
+}
+
+.use-refresh-host::after {
+  right: 0;
+}
+
+.use-refresh-host.pulling,
+.use-refresh-host.ready {
+  padding-top: var(--threshold-height);
+}
+
+.use-refresh-host.pulling::before,
+.use-refresh-host.pulling::after,
+.use-refresh-host.ready::before,
+.use-refresh-host.ready::after {
+  height: calc(1px * var(--pull-height));
+  opacity: 1;
+  animation: none;
+  transform: translateY(0);
+  transition:
+    height 0.05s ease-out,
+    opacity 0.05s ease-out;
+}
+
+.use-refresh-host.loading::before,
+.use-refresh-host.loading::after {
+  height: var(--threshold-height);
+  opacity: 1;
+  animation: move-down var(--down-duration) ease-in-out infinite;
+  transition: none;
+}
+
+.use-refresh-host.done {
+  padding-top: 0;
+}
+
+.use-refresh-host.done::before,
+.use-refresh-host.done::after {
+  height: var(--threshold-height);
+  opacity: 0;
+  animation: move-up var(--up-duration) ease-out forwards;
+  transition:
+    opacity 256ms ease-out,
+    transform 256ms ease-out;
+}
+
+@keyframes move-down {
+  0% {
+    transform: translateY(-100%);
+  }
+
+  100% {
+    transform: translateY(0%);
+  }
+}
+
+@keyframes move-up {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}

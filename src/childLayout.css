@@ -1,0 +1,344 @@
+/*
+ * 盒子组件的逐子元素布局微调 (FlexBox / GridBox / StackBox).
+ *
+ * 组件把 `fg` / `as` / `pos` 等数组 props 转成根元素上的 `--child-{i}-*` 变量
+ * (纯函数见 utils/childLayout.ts), 下面的静态 :nth-child 规则负责消费.
+ * 布局因此完全由声明式数据决定, 不再需要 $effect 扫描子节点写内联样式.
+ *
+ * 每个属性组都有 data-* 守卫: 未传数组时整条规则不存在, 子元素自己的
+ * `flex-grow` / `align-self` 不会被本文件覆盖 (静态规则的选择器优先级
+ * 高于子组件内部的单类规则, 没有守卫会造成回归).
+ *
+ * 上限 CHILD_LIMIT = 12: :nth-child 规则是静态的, 超过上限的子元素退回
+ * 组件自身的 CSS 默认值. 需要更多时同步改这里与 utils/childLayout.ts 的常量.
+ */
+
+/* ── FlexBox ── */
+
+.flex-box[data-child-as] > :nth-child(1) {
+  align-self: var(--child-1-as);
+}
+
+.flex-box[data-child-as] > :nth-child(2) {
+  align-self: var(--child-2-as);
+}
+
+.flex-box[data-child-as] > :nth-child(3) {
+  align-self: var(--child-3-as);
+}
+
+.flex-box[data-child-as] > :nth-child(4) {
+  align-self: var(--child-4-as);
+}
+
+.flex-box[data-child-as] > :nth-child(5) {
+  align-self: var(--child-5-as);
+}
+
+.flex-box[data-child-as] > :nth-child(6) {
+  align-self: var(--child-6-as);
+}
+
+.flex-box[data-child-as] > :nth-child(7) {
+  align-self: var(--child-7-as);
+}
+
+.flex-box[data-child-as] > :nth-child(8) {
+  align-self: var(--child-8-as);
+}
+
+.flex-box[data-child-as] > :nth-child(9) {
+  align-self: var(--child-9-as);
+}
+
+.flex-box[data-child-as] > :nth-child(10) {
+  align-self: var(--child-10-as);
+}
+
+.flex-box[data-child-as] > :nth-child(11) {
+  align-self: var(--child-11-as);
+}
+
+.flex-box[data-child-as] > :nth-child(12) {
+  align-self: var(--child-12-as);
+}
+
+.flex-box[data-child-grow] > :nth-child(1) {
+  flex-grow: var(--child-1-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(2) {
+  flex-grow: var(--child-2-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(3) {
+  flex-grow: var(--child-3-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(4) {
+  flex-grow: var(--child-4-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(5) {
+  flex-grow: var(--child-5-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(6) {
+  flex-grow: var(--child-6-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(7) {
+  flex-grow: var(--child-7-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(8) {
+  flex-grow: var(--child-8-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(9) {
+  flex-grow: var(--child-9-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(10) {
+  flex-grow: var(--child-10-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(11) {
+  flex-grow: var(--child-11-grow);
+}
+
+.flex-box[data-child-grow] > :nth-child(12) {
+  flex-grow: var(--child-12-grow);
+}
+
+.flex-box[data-child-shrink] > :nth-child(1) {
+  flex-shrink: var(--child-1-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(2) {
+  flex-shrink: var(--child-2-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(3) {
+  flex-shrink: var(--child-3-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(4) {
+  flex-shrink: var(--child-4-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(5) {
+  flex-shrink: var(--child-5-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(6) {
+  flex-shrink: var(--child-6-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(7) {
+  flex-shrink: var(--child-7-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(8) {
+  flex-shrink: var(--child-8-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(9) {
+  flex-shrink: var(--child-9-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(10) {
+  flex-shrink: var(--child-10-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(11) {
+  flex-shrink: var(--child-11-shrink);
+}
+
+.flex-box[data-child-shrink] > :nth-child(12) {
+  flex-shrink: var(--child-12-shrink);
+}
+
+.flex-box[data-child-order] > :nth-child(1) {
+  order: var(--child-1-order);
+}
+
+.flex-box[data-child-order] > :nth-child(2) {
+  order: var(--child-2-order);
+}
+
+.flex-box[data-child-order] > :nth-child(3) {
+  order: var(--child-3-order);
+}
+
+.flex-box[data-child-order] > :nth-child(4) {
+  order: var(--child-4-order);
+}
+
+.flex-box[data-child-order] > :nth-child(5) {
+  order: var(--child-5-order);
+}
+
+.flex-box[data-child-order] > :nth-child(6) {
+  order: var(--child-6-order);
+}
+
+.flex-box[data-child-order] > :nth-child(7) {
+  order: var(--child-7-order);
+}
+
+.flex-box[data-child-order] > :nth-child(8) {
+  order: var(--child-8-order);
+}
+
+.flex-box[data-child-order] > :nth-child(9) {
+  order: var(--child-9-order);
+}
+
+.flex-box[data-child-order] > :nth-child(10) {
+  order: var(--child-10-order);
+}
+
+.flex-box[data-child-order] > :nth-child(11) {
+  order: var(--child-11-order);
+}
+
+.flex-box[data-child-order] > :nth-child(12) {
+  order: var(--child-12-order);
+}
+
+/* ── GridBox ── */
+
+.grid-box > :nth-child(1) {
+  grid-area: _1;
+}
+
+.grid-box > :nth-child(2) {
+  grid-area: _2;
+}
+
+.grid-box > :nth-child(3) {
+  grid-area: _3;
+}
+
+.grid-box > :nth-child(4) {
+  grid-area: _4;
+}
+
+.grid-box > :nth-child(5) {
+  grid-area: _5;
+}
+
+.grid-box > :nth-child(6) {
+  grid-area: _6;
+}
+
+.grid-box > :nth-child(7) {
+  grid-area: _7;
+}
+
+.grid-box > :nth-child(8) {
+  grid-area: _8;
+}
+
+.grid-box > :nth-child(9) {
+  grid-area: _9;
+}
+
+.grid-box > :nth-child(10) {
+  grid-area: _10;
+}
+
+.grid-box > :nth-child(11) {
+  grid-area: _11;
+}
+
+.grid-box > :nth-child(12) {
+  grid-area: _12;
+}
+
+/* ── StackBox ── */
+
+.stack-box[data-child-pos] > :nth-child(1) {
+  left: calc(1px * var(--child-1-left));
+  right: calc(1px * var(--child-1-right));
+  top: calc(1px * var(--child-1-top));
+  bottom: calc(1px * var(--child-1-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(2) {
+  left: calc(1px * var(--child-2-left));
+  right: calc(1px * var(--child-2-right));
+  top: calc(1px * var(--child-2-top));
+  bottom: calc(1px * var(--child-2-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(3) {
+  left: calc(1px * var(--child-3-left));
+  right: calc(1px * var(--child-3-right));
+  top: calc(1px * var(--child-3-top));
+  bottom: calc(1px * var(--child-3-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(4) {
+  left: calc(1px * var(--child-4-left));
+  right: calc(1px * var(--child-4-right));
+  top: calc(1px * var(--child-4-top));
+  bottom: calc(1px * var(--child-4-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(5) {
+  left: calc(1px * var(--child-5-left));
+  right: calc(1px * var(--child-5-right));
+  top: calc(1px * var(--child-5-top));
+  bottom: calc(1px * var(--child-5-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(6) {
+  left: calc(1px * var(--child-6-left));
+  right: calc(1px * var(--child-6-right));
+  top: calc(1px * var(--child-6-top));
+  bottom: calc(1px * var(--child-6-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(7) {
+  left: calc(1px * var(--child-7-left));
+  right: calc(1px * var(--child-7-right));
+  top: calc(1px * var(--child-7-top));
+  bottom: calc(1px * var(--child-7-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(8) {
+  left: calc(1px * var(--child-8-left));
+  right: calc(1px * var(--child-8-right));
+  top: calc(1px * var(--child-8-top));
+  bottom: calc(1px * var(--child-8-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(9) {
+  left: calc(1px * var(--child-9-left));
+  right: calc(1px * var(--child-9-right));
+  top: calc(1px * var(--child-9-top));
+  bottom: calc(1px * var(--child-9-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(10) {
+  left: calc(1px * var(--child-10-left));
+  right: calc(1px * var(--child-10-right));
+  top: calc(1px * var(--child-10-top));
+  bottom: calc(1px * var(--child-10-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(11) {
+  left: calc(1px * var(--child-11-left));
+  right: calc(1px * var(--child-11-right));
+  top: calc(1px * var(--child-11-top));
+  bottom: calc(1px * var(--child-11-bottom));
+}
+
+.stack-box[data-child-pos] > :nth-child(12) {
+  left: calc(1px * var(--child-12-left));
+  right: calc(1px * var(--child-12-right));
+  top: calc(1px * var(--child-12-top));
+  bottom: calc(1px * var(--child-12-bottom));
+}

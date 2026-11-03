@@ -1,12 +1,34 @@
-# dependencies (bun install)
+# dependencies
 node_modules
-bun.lock
-.worktrees
-.bun-svelte-cache
-.tmp/
-.playwright-cli/
+demo/node_modules
+.pnpm-store
 
-# demo app
-demo/node_modules/
-demo/bun.lock
-demo/dist/
+# build output
+dist
+build
+demo/dist
+.svelte-kit
+.output
+*.tgz
+
+# test / tooling cache
+coverage
+*.lcov
+*.tsbuildinfo
+vite.config.ts.timestamp-*
+vite.config.js.timestamp-*
+
+# env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# OS
+.DS_Store
+Thumbs.db
+
+# agent scratch
+.worktrees
+.superpowers/
+.playwright-cli/
